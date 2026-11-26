@@ -127,3 +127,15 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 5px; margin: 0 1px; bo
 .ctl-sec { margin: 14px 0 4px; font-size: 15px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid rgba(255,179,71,.35); padding-bottom: 2px; }
 .ctl-panel td:first-child { width: 42%; }
 .ctl-tips { margin: 14px 0 6px; padding-left: 18px; font-size: 13px; opacity: .9; line-height: 1.45; }
+
+.bigmap { position: absolute; inset: 0; background: rgba(10,8,6,.92); display: none; pointer-events: auto; z-index: 5; }
+.bigmap.on { display: block; }
+.bigmap > canvas { position: absolute; left: 16px; top: 52px; width: calc(100% - 276px); height: calc(100% - 68px); border: 2px solid #000; }
+.bigmap-title { position: absolute; left: 18px; top: 10px; font-size: 28px; font-weight: 900; font-style: italic; color: var(--accent); text-shadow: var(--shadow); }
+.bigmap-legend { position: absolute; right: 16px; top: 52px; width: 228px; background: var(--panel); border: 2px solid #000; padding: 10px 12px; }
+.bigmap-legend .lg { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; font-weight: 700; }
+.lg-hint { margin-top: 10px; font-size: 12px; opacity: .8; }
+@media (max-width: 700px) {
+  .bigmap > canvas { width: calc(100% - 32px); height: calc(100% - 240px); }
+  .bigmap-legend { top: auto; bottom: 12px; left: 16px; right: 16px; width: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+}

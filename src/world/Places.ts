@@ -319,8 +319,15 @@ export class Places {
   }
 
   /** Marcadores para el minimapa (gimnasio y camiones). */
-  mapMarkers(): { x: number; z: number; color: string }[] {
-    return this.outdoor.filter((s) => s.action.type === 'comprar' || (s.action.type === 'entrar' && s.action.kind === 'gym')).map((s) => ({ x: s.p.x, z: s.p.z, color: '#ffd040' }));
+  mapMarkers(): import('../ui/Minimap').MapMarker[] {
+    const out: import('../ui/Minimap').MapMarker[] = [];
+    for (const s of this.outdoor) {
+      const a = s.action;
+      if (a.type === 'comprar') out.push({ x: s.p.x, z: s.p.z, color: '#f0b020', icon: 'comida', label: a.title });
+      else if (a.type === 'entrar' && a.kind === 'gym') out.push({ x: s.p.x, z: s.p.z, color: '#e05020', icon: 'gym', label: 'Gimnasio Olimpus' });
+      else if (a.type === 'entrar' && a.kind === 'tienda') out.push({ x: s.p.x, z: s.p.z, color: '#40a050', icon: 'abasto' });
+    }
+    return out;
   }
 }
 

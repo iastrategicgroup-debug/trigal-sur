@@ -95,6 +95,27 @@ export class Game {
   private notSeenT = 0;
   private arrestT = 0;
   private raceLock = false;
+  private mapOpen = false;
+
+  /** Mapa grande (M): pausa el juego y muestra la ciudad completa con íconos y leyenda. */
+  private toggleMap(): void {
+    this.mapOpen = !this.mapOpen;
+    this.state = this.mapOpen ? 'paused' : 'playing';
+    this.ui.showBigMap(this.mapOpen);
+    if (this.mapOpen) this.minimap.drawFull(this.ui.bigMapCanvas, this.player.pos.x, this.player.pos.z, this.player.facing, this.mapMarkers());
+  }
+
+  /** Puntos de interés para los mapas. */
+  private mapMarkers(): import('../ui/Minimap').MapMarker[] {
+    const H = this.world.hill;
+    const heli = this.traffic.list.find((v) => v.kind === 'heli');
+    return [
+      ...this.places.mapMarkers(),
+      { x: H.cx, z: H.cz, color: '#8a6a40', icon: 'cerro', label: 'Cerro' },
+      { x: this.race.marker.x, z: this.race.marker.z, color: '#2080e0', icon: 'carrera', label: 'Carrera de motos' },
+      ...(heli ? [{ x: heli.pos.x, z: heli.pos.z, color: '#20b0c0', icon: 'heli' as const, label: 'Helicóptero' }] : []),
+    ];
+  }
   private actionT = 0;
   private combo = 0;
   private punchCd = 0;
@@ -149,7 +170,9 @@ export class Game {
     document.addEventListener('pointerlockchange', () => { if (!this.input.locked) this.autoPause(); });
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F3') { this.debugOn = !this.debugOn; this.ui.debug.classList.toggle('on', this.debugOn || this.save.settings.showFps); }
+      if (e.code === 'KeyM' && (this.state === 'playing' || this.mapOpen)) { this.toggleMap(); return; }
       if (e.code === 'Escape') {
+        if (this.mapOpen) { this.toggleMap(); return; }
         if (this.state === 'playing') this.pause();
         else if (this.state === 'paused') this.resume();
       }
@@ -231,7 +254,7 @@ export class Game {
     this.persist();
     this.ui.show('pause', 'pause');
   }
-  private autoPause(): void { if (this.state === 'playing' && !this.cam.inIntro) this.pause(); }
+  private autoPause(): void { if (this.state === 'playing' && !this.cam.inIntro && !this.mapOpen) this.pause(); }
   private resume(): void { this.state = 'playing'; this.input.freeLook = true; this.ui.show('none'); this.input.requestLock(); }
   private toMenu(): void {
     this.state = 'menu';
@@ -529,7 +552,7 @@ export class Game {
       this.ui.setSpeed(this.vehicle ? Math.abs(this.vehicle.speed) * 3.6 : null);
       this.ui.minimap.style.visibility = this.outside ? 'hidden' : 'visible';
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
-      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...this.traffic.positions(), ...(this.race.state === 'libre' ? [{ x: this.race.marker.x, z: this.race.marker.z, color: '#40c0ff' }] : [])]);
+      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.monsters.positions(), ...this.traffic.positions().filter((m) => m.color !== '#40e0ff'), ...this.mapMarkers()]);
       this.saveTimer += frameDt;
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }

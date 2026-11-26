@@ -1,4 +1,5 @@
 import type { Settings } from '../core/Storage';
+import { drawIcon, ICON_INFO, type MapIcon } from './Minimap';
 
 export type ScreenId = 'loading' | 'menu' | 'settings' | 'controls' | 'pause' | 'none';
 
@@ -35,6 +36,7 @@ const CONTROLS: [string, [string, string][]][] = [
     ['E (anillo azul)', 'Carrera de motos en el cerro ($100 al primero)'],
   ]],
   ['Juego', [
+    ['M', 'Mapa de la ciudad (gimnasio, comida, cerro, helicóptero)'],
     ['Esc', 'Pausa'],
     ['F3', 'Datos de depuración (FPS, posición)'],
   ]],
@@ -82,6 +84,8 @@ export class UI {
   private starsEl: HTMLDivElement;
   private speedEl: HTMLDivElement;
   private bannerEl: HTMLDivElement;
+  private bigMapEl: HTMLDivElement;
+  readonly bigMapCanvas: HTMLCanvasElement;
   private menuEl: HTMLDivElement;
   private crossEl: HTMLDivElement;
   private lastStreet = '';
@@ -169,7 +173,16 @@ export class UI {
     this.debug = el('div', 'debug');
     const attrib = el('div', 'attrib', '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors');
 
-    root.append(...this.screens.values(), this.hud, this.deathEl, this.debug, attrib);
+    this.bigMapEl = el('div', 'bigmap');
+    this.bigMapCanvas = el('canvas');
+    const legend = el('div', 'bigmap-legend');
+    for (const [icon, info] of Object.entries(ICON_INFO)) {
+      const row = el('div', 'lg'); const ic = el('canvas'); ic.width = ic.height = 28; drawIcon(ic.getContext('2d')!, 14, 14, icon as MapIcon, 12);
+      row.append(ic, el('span', '', info.label)); legend.append(row);
+    }
+    legend.append(el('div', 'lg-hint', '<kbd>M</kbd> o <kbd>Esc</kbd> para cerrar'));
+    this.bigMapEl.append(el('div', 'bigmap-title', 'El Trigal Sur'), this.bigMapCanvas, legend);
+    root.append(...this.screens.values(), this.bigMapEl, this.hud, this.deathEl, this.debug, attrib);
   }
 
   private add(id: ScreenId, e: HTMLElement) { this.screens.set(id, e); }
@@ -263,6 +276,7 @@ export class UI {
   setPlaces(found: number, total: number): void { this.placesEl.textContent = `Lugares ${found}/${total}`; }
   /** Destello rojo en los bordes al recibir daño. */
   hurt(): void { this.hurtEl.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => this.hurtEl.classList.remove('on'))); }
+  showBigMap(on: boolean): void { this.bigMapEl.classList.toggle('on', on); }
   setWanted(n: number): void { const k = Math.ceil(n - 0.01); this.starsEl.innerHTML = k > 0 ? '★'.repeat(k) + '<span>' + '★'.repeat(5 - k) + '</span>' : ''; }
   setSpeed(kmh: number | null): void { this.speedEl.style.display = kmh === null ? 'none' : 'block'; if (kmh !== null) this.speedEl.innerHTML = `${Math.round(kmh)}<small>km/h</small>`; }
   setBanner(t: string): void { this.bannerEl.textContent = t; this.bannerEl.style.display = t ? 'block' : 'none'; this.bannerEl.classList.toggle('small', t.startsWith('Posición')); }
