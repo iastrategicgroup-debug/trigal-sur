@@ -50,6 +50,8 @@ export class PostFX {
   private bloom: UnrealBloomPass;
   private grade: ShaderPass;
   enabled = true;
+  /** Calidad baja: sin resplandor (el pase más pesado), se mantiene la gradación de color. */
+  set low(v: boolean) { this.bloom.enabled = !v; }
 
   constructor(private renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     this.composer = new EffectComposer(renderer);

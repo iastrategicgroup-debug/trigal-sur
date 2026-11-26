@@ -4,11 +4,25 @@ import * as THREE from 'three';
  * Acumula triángulos con posición, normal, UV y color por vértice.
  * Al final produce una sola BufferGeometry (una draw call por material).
  */
+/** Arreglo Float32 que crece (evita listas de números de JS, que pesan el doble y fragmentan la memoria). */
+export class FBuf {
+  a = new Float32Array(1024);
+  length = 0;
+  push(...v: number[]): void {
+    if (this.length + v.length > this.a.length) { const n = new Float32Array(Math.max(this.a.length * 2, this.length + v.length)); n.set(this.a.subarray(0, this.length)); this.a = n; }
+    for (let i = 0; i < v.length; i++) this.a[this.length++] = v[i]!;
+  }
+  get(i: number): number { return this.a[i]!; }
+  set(i: number, v: number): void { this.a[i] = v; }
+  /** Copia ajustada para la GPU. */
+  out(): Float32Array { return this.a.slice(0, this.length); }
+}
+
 export class GeoBuilder {
-  pos: number[] = [];
-  nor: number[] = [];
-  uv: number[] = [];
-  col: number[] = [];
+  pos = new FBuf();
+  nor = new FBuf();
+  uv = new FBuf();
+  col = new FBuf();
 
   get vertexCount(): number { return this.pos.length / 3; }
 
@@ -61,10 +75,12 @@ export class GeoBuilder {
 
   build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos.out(), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(this.nor.out(), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(this.uv.out(), 2));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col.out(), 3));
+    // libera los acumuladores
+    this.pos = new FBuf(); this.nor = new FBuf(); this.uv = new FBuf(); this.col = new FBuf();
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;

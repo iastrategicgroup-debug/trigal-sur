@@ -53,6 +53,8 @@ export class NpcManager {
   private nextId = 1;
   /** Máximo de peatones (de noche, con las criaturas, la gente se mete en sus casas). */
   max = MAX_NPC;
+  /** Tope según la calidad gráfica. */
+  cap = 40;
   private spawnTimer = 0;
   private walkPaths: { road: Road; side: number; pts: V2[] }[] = [];
   private rnd: () => number;

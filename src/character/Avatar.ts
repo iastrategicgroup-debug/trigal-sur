@@ -16,10 +16,10 @@ export class Avatar {
   private current: THREE.AnimationAction | null = null;
   currentName = '';
 
-  constructor(readonly params: HumanParams) {
+  constructor(readonly params: HumanParams, hiRes = false) {
     CLIPS ??= buildClips();
     FABRIC ??= fabricTexture();
-    const h = buildHuman(params, FABRIC);
+    const h = buildHuman(params, FABRIC, hiRes);
     this.mesh = h.mesh; this.bones = h.bones; this.height = h.height;
     this.object.add(this.mesh);
     this.mixer = new THREE.AnimationMixer(this.mesh);

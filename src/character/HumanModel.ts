@@ -185,7 +185,7 @@ const WHITE = new THREE.Color(1, 1, 1);
 const smooth = (a: number, b: number, t: number) => { const x = Math.min(1, Math.max(0, (t - a) / (b - a))); return x * x * (3 - 2 * x); };
 
 /** Construye el personaje: SkinnedMesh con esqueleto, materiales y textura del rostro. */
-export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE.SkinnedMesh; bones: Record<BoneName, THREE.Bone>; height: number } {
+export function buildHuman(p: HumanParams, fabric: THREE.Texture, hiRes = false): { mesh: THREE.SkinnedMesh; bones: Record<BoneName, THREE.Bone>; height: number } {
   const J = joints(p);
   const H = J.H;
   const B = new SkinBuilder();
@@ -413,7 +413,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const hc = new THREE.Vector3(0, 0.875 * H + headH * 0.4, 0.008 * H);
   const hrx = headH * 0.37 * p.face.width * (1 + f * 0.08), hry = headH * 0.52, hrz = headH * 0.46;
   {
-    const rows = 28, cols = 44;
+    const rows = hiRes ? 28 : 20, cols = hiRes ? 44 : 28;
     const base = B.pos.length / 3;
     const G = (dx: number, dy: number, sx: number, sy: number) => Math.exp(-(dx * dx) / sx - (dy * dy) / sy);
     for (let j = 0; j <= rows; j++) {
@@ -539,10 +539,12 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const skeleton = new THREE.Skeleton(BONES.map((n) => bones[n]));
   const geo = B.geometry();
   geo.clearGroups();
-  const atlas = document.createElement('canvas'); atlas.width = 512; atlas.height = 320;
+  // Atlas: 512×320 para Joan, 256×160 para NPC (4 veces menos memoria de video)
+  const k = hiRes ? 1 : 0.5;
+  const atlas = document.createElement('canvas'); atlas.width = 512 * k; atlas.height = 320 * k;
   const ag = atlas.getContext('2d')!;
-  ag.drawImage(fabric.image as HTMLCanvasElement, 0, 0, 256, 320);
-  ag.drawImage(faceTexture(p).image as HTMLCanvasElement, 256, 0, 256, 256);
+  ag.drawImage(fabric.image as HTMLCanvasElement, 0, 0, 256 * k, 320 * k);
+  ag.drawImage(faceTexture(p).image as HTMLCanvasElement, 256 * k, 0, 256 * k, 256 * k);
   const atlasTex = new THREE.CanvasTexture(atlas);
   atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 4;
   const mat = new THREE.MeshPhongMaterial({ vertexColors: true, map: atlasTex, shininess: 16, specular: new THREE.Color(0x1e1c1a) });

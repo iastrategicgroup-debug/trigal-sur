@@ -43,7 +43,7 @@ export class CityWorld {
 
     // Luces
     this.sun.castShadow = shadows;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
     const sc = this.sun.shadow.camera;
     sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 1; sc.far = 400;
     this.sun.shadow.bias = -0.0006;
@@ -399,7 +399,10 @@ export class CityWorld {
     return night;
   }
 
-  setShadows(on: boolean): void { this.sun.castShadow = on; }
+  setShadows(on: boolean, size = 1024): void {
+    this.sun.castShadow = on;
+    if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget; }
+  }
 }
 
 function signedArea(poly: V2[]): number {

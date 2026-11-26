@@ -165,6 +165,13 @@ export class UI {
     row('Invertir eje vertical', check('invertY'));
     row('Volumen', range('volume', 0, 1, 0.05));
     row('Render retro (480p)', check('retro480'));
+    {
+      const sel = document.createElement('select');
+      for (const [v, t] of [['baja', 'Baja (equipos modestos)'], ['media', 'Media'], ['alta', 'Alta']] as const) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
+      sel.value = this.settings.quality;
+      sel.addEventListener('change', () => { this.settings = { ...this.settings, quality: sel.value as Settings['quality'] }; this.h.onSettingsChange(this.settings); });
+      const l = el('label'); l.append(el('span', '', 'Calidad gráfica'), sel); p.append(l);
+    }
     row('Sombras', check('shadows'));
     row('Efectos cinematográficos', check('postfx'));
     row('Mostrar FPS', check('showFps'));
@@ -224,5 +231,9 @@ export class UI {
   }
   hideMenu(): void { this.menuEl.classList.remove('on'); }
   setAim(on: boolean): void { this.crossEl.classList.toggle('on', on); }
+  fatal(title: string, msg: string): void {
+    const d = el('div', 'screen dim on', `<h1 class="logo" style="font-size:40px">${title}</h1><div class="sub">${msg}</div>`);
+    this.hud.parentElement!.append(d);
+  }
   setDead(on: boolean): void { this.deathEl.classList.toggle('on', on); }
 }

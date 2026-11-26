@@ -123,6 +123,15 @@ export class Game {
   }
 
   private bindEvents(): void {
+    // Si la tarjeta gráfica se queda sin memoria, en vez de una pestaña rota: aviso y recarga en calidad baja
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.persist();
+      this.save.settings = { ...this.save.settings, quality: 'baja', postfx: false, shadows: false };
+      writeSave(this.save);
+      this.ui.fatal('La tarjeta gráfica se quedó sin memoria', 'Se activó la calidad baja. Recargando…');
+      setTimeout(() => location.reload(), 2500);
+    });
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('blur', () => this.autoPause());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.autoPause(); });
@@ -147,14 +156,14 @@ export class Game {
       ['Construyendo El Trigal Sur', () => { this.world = new CityWorld(this.map, this.scene, this.save.settings.shadows); }],
       ['Dibujando el minimapa', () => { this.minimap = new Minimap(this.ui.minimap, this.map, this.world.lotsList); }],
       ['Creando a Joan', () => {
-        this.joan = new Avatar(joanParams());
+        this.joan = new Avatar(joanParams(), true);
         this.player.object.add(this.joan.object);
         this.scene.add(this.player.object, this.pickups.group);
-        this.restorePosition(); this.seedPickups();
+        this.restorePosition();
       }],
-      ['Abriendo casas, abastos y el gimnasio', () => { this.places = new Places(this.world); this.scene.add(this.places.group); }],
+      ['Abriendo casas, abastos y el gimnasio', () => { this.places = new Places(this.world); this.scene.add(this.places.group); this.pickups.resolver = (q) => { this.world.collision.resolve(q, 0.6); }; this.seedPickups(); }],
       ['Algo despierta en la noche', () => { this.monsters = new Monsters(this.world, this.pickups); this.scene.add(this.monsters.group); this.monsters.onGroan = (d) => this.sfx.groan(d); this.setupShotgun(); }],
-      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, 55); }],
+      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.npcs.cap = this.save.settings.quality === 'baja' ? 20 : this.save.settings.quality === 'media' ? 40 : 60; this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, this.npcs.cap - 5); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
     ];
     for (let i = 0; i < tasks.length; i++) {
@@ -225,7 +234,8 @@ export class Game {
     this.save.settings = s;
     this.ui.debug.classList.toggle('on', this.debugOn || s.showFps);
     this.renderer.shadowMap.enabled = s.shadows;
-    this.world?.setShadows(s.shadows);
+    this.world?.setShadows(s.shadows, s.quality === 'alta' ? 2048 : 1024);
+    if (this.npcs) this.npcs.cap = s.quality === 'baja' ? 20 : s.quality === 'media' ? 40 : 60;
     this.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; });
     this.resize();
     writeSave(this.save);
@@ -233,7 +243,10 @@ export class Game {
 
   private resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
-    const ratio = this.save.settings.retro480 ? 480 / h : Math.min(window.devicePixelRatio, 2);
+    // Resolución interna limitada: con efectos, los búferes de imagen a resolución "retina" consumen cientos de MB
+    const q = this.save.settings.quality;
+    const cap = q === 'alta' ? 1.5 : q === 'media' ? 1.25 : 1;
+    const ratio = this.save.settings.retro480 ? 480 / h : Math.min(window.devicePixelRatio, cap) * (q === 'baja' ? 0.85 : 1);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     this.fx?.setSize(w, h, ratio);
@@ -437,7 +450,7 @@ export class Game {
       if (nightNow) this.ui.toast(this.hasShotgun ? '<b>Cae la noche…</b>Algo se mueve en la niebla' : '<b>Cae la noche…</b>Algo se mueve en la niebla. Busca la escopeta (marcada en el mapa)', 6);
       else this.ui.toast('<b>Amanece</b>Las criaturas se deshacen con la luz', 4);
     }
-    this.npcs.max = nightNow ? 12 : 70;
+    this.npcs.max = nightNow ? Math.min(12, this.npcs.cap) : this.npcs.cap;
     this.monsters.update(dt, horror, { pos: this.player.pos, dead: this.vitals.dead, hurt: (a) => this.hurt(a, 'golpe') });
     if (!this.outside) this.npcs.update(dt, {
       pos: this.player.pos, dead: this.vitals.dead, money: this.money,
@@ -482,6 +495,7 @@ export class Game {
     }
     this.updateDebug(frameDt, speed);
     this.fx.enabled = this.save.settings.postfx;
+    this.fx.low = this.save.settings.quality === 'baja';
     this.fx.update(this.gameTime, this.night);
     this.renderer.info.reset();
     this.fx.render(frameDt);
@@ -526,7 +540,7 @@ export class Game {
       this.places.exit();
       const o = this.outside; this.outside = null;
       this.teleport(o.x, o.z, o.facing);
-      this.npcs.populate(this.player.pos, 40);
+      this.npcs.populate(this.player.pos, Math.min(30, this.npcs.cap));
     } else if (a.type === 'comprar') {
       this.menu = { title: a.title, items: a.items };
       this.ui.showMenu(a.title, a.items.map((i, k) => `<kbd>${k + 1}</kbd> ${i.name} <span>$${i.price}</span>`), this.money);

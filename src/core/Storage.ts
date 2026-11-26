@@ -8,6 +8,7 @@ export interface Settings {
   showFps: boolean;
   shadows: boolean;      // sombras dinámicas del sol
   postfx: boolean;       // efectos cinematográficos (gradación, resplandor, bruma)
+  quality: 'baja' | 'media' | 'alta';
 }
 
 export interface SaveData {
@@ -23,6 +24,8 @@ export const DEFAULT_SETTINGS: Settings = {
   retro480: false,
   showFps: false,
   postfx: true,
+  // Equipos con poca memoria (o teléfonos) arrancan en calidad baja
+  quality: typeof navigator !== 'undefined' && ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4 ? 'baja' : 'media',
   shadows: typeof matchMedia === 'function' ? !matchMedia('(pointer: coarse)').matches : true,
 };
 
