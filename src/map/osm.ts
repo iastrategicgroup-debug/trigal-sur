@@ -21,17 +21,20 @@ export interface Road {
 export interface Area { id: string; name: string; kind: string; tags: Record<string, string>; poly: V2[] }
 export interface Poi { id: string; name: string; tags: Record<string, string>; p: V2 }
 
-/** Anchos por tipo de vía (decisión: valores típicos de Valencia). */
+/**
+ * Medidas por tipo de vía (urbanizaciones de quintas en Valencia, Venezuela).
+ * Canal de 3,5 m; calle local de doble sentido 7 m de calzada; acera total 2,5 m en calles y 3,5 m en avenidas.
+ */
+export const LANE = 3.5;
 export function roadProfile(kind: string, oneway: boolean, lanes?: number): { width: number; sidewalk: number } | null {
-  const lane = 3.2;
   switch (kind) {
-    case 'motorway': return { width: (lanes ?? 3) * 3.6, sidewalk: 0 };
-    case 'motorway_link': return { width: (lanes ?? 1) * 3.8 + 1, sidewalk: 0 };
-    case 'trunk': case 'primary': return { width: (lanes ?? (oneway ? 3 : 4)) * lane, sidewalk: 2.5 };
-    case 'secondary': case 'tertiary': return { width: (lanes ?? (oneway ? 2 : 3)) * lane, sidewalk: 2.2 };
-    case 'residential': case 'unclassified': case 'living_street': return { width: oneway ? 5 : 6.5, sidewalk: 1.6 };
-    case 'service': return { width: 4, sidewalk: 0 };
-    default: return null; // footway, path, etc. se tratan aparte
+    case 'motorway': return { width: (lanes ?? 3) * 3.6 + 1.0, sidewalk: 0 };       // + hombrillo
+    case 'motorway_link': return { width: (lanes ?? 1) * 3.6 + 1.5, sidewalk: 0 };
+    case 'trunk': case 'primary': return { width: (lanes ?? (oneway ? 3 : 4)) * LANE, sidewalk: 3.5 };
+    case 'secondary': case 'tertiary': return { width: (lanes ?? (oneway ? 2 : 3)) * LANE, sidewalk: 3.5 };
+    case 'residential': case 'unclassified': case 'living_street': return { width: oneway ? 5.5 : 7.0, sidewalk: 2.5 };
+    case 'service': return { width: 4.5, sidewalk: 0 };
+    default: return null;
   }
 }
 

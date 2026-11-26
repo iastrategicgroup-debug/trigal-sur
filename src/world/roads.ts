@@ -63,7 +63,10 @@ export function densify(pts: V2[], max: number): V2[] {
   return out;
 }
 
-export const SIDEWALK_H = 0.15;
+/** Altura del brocal: 30 cm (pedido del usuario). */
+export const SIDEWALK_H = 0.30;
+/** Ancho del canto del brocal. */
+export const CURB_W = 0.15;
 
 /**
  * Construye calzadas, rayado, aceras y brocales.
@@ -90,9 +93,9 @@ export function buildRoads(map: CityMap, bank: GeoBank, rnd: () => number): void
         const inner = offsetPolyline(pts, side * hw);
         const outer = offsetPolyline(pts, side * (hw + road.sidewalk));
         // Todas las aceras: brocal gris (0.15) + franja de grama + losas largas de concreto.
-        const verge = road.kind === 'residential' ? 0.5 : 0.65;
-        const curbTop = offsetPolyline(pts, side * (hw + 0.15));
-        const walkIn = offsetPolyline(pts, side * (hw + 0.15 + verge));
+        const verge = road.sidewalk >= 3.5 ? 1.0 : 0.8; // franja de grama
+        const curbTop = offsetPolyline(pts, side * (hw + CURB_W));
+        const walkIn = offsetPolyline(pts, side * (hw + CURB_W + verge));
         // Tramos de acera que no invaden otra calzada (cruces)
         const keep = (i: number) => {
           const mx = (inner[i]!.x + outer[i + 1]!.x) / 2, mz = (inner[i]!.z + outer[i + 1]!.z) / 2;
@@ -100,9 +103,9 @@ export function buildRoads(map: CityMap, bank: GeoBank, rnd: () => number): void
         };
         const tone = new THREE.Color().setScalar(0.92 + rnd() * 0.1);
         const pair = (a: V2[], b: V2[]) => (side > 0 ? [b, a] : [a, b]) as [V2[], V2[]];
-        ribbon(curbTopB, ...pair(inner, curbTop), SIDEWALK_H, 0.15, 1, WHITE, keep);
+        ribbon(curbTopB, ...pair(inner, curbTop), SIDEWALK_H, CURB_W, 1, WHITE, keep);
         if (verge > 0) ribbon(vergeB, ...pair(curbTop, walkIn), SIDEWALK_H, verge / 4, 4, WHITE, keep);
-        ribbon(walk, ...pair(walkIn, outer), SIDEWALK_H, (road.sidewalk - 0.15 - verge) / 2, 2, tone, keep);
+        ribbon(walk, ...pair(walkIn, outer), SIDEWALK_H, (road.sidewalk - CURB_W - verge) / 1.5, 3, tone, keep); // losas de 1,5 m
         // Brocal: cara vertical del lado de la calzada
         const L = cumLen(inner);
         for (let i = 0; i < inner.length - 1; i++) {

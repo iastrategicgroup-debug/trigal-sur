@@ -18,7 +18,7 @@ export const CONFIG = {
     accel: 10,
     jumpHeight: 0.8,
     gravity: 18,
-    stepUp: 0.25,
+    stepUp: 0.35,             // sube la acera de 30 cm
   },
   stamina: { max: 100, drain: 12, regen: 18, regenDelay: 1, minToRun: 25 },
   /** Salud y escudo. Daño solo por caídas altas y choques al conducir (sin violencia). */

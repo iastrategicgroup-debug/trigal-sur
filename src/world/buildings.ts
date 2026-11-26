@@ -96,23 +96,30 @@ export function placeLots(map: CityMap, rnd: () => number): Lot[] {
         const a = pts[i]!, b = pts[i + 1]!;
         const seg = Math.hypot(b.x - a.x, b.z - a.z);
         acc += seg;
-        const hw = commercial ? 4 + rnd() * 2.5 : 6 + rnd() * 2;
+        const hw = commercial ? 5 + rnd() * 2 : 7 + rnd() * 3;          // frente: comercio 10–14 m, quinta 14–20 m
         if (acc < hw * 2 + 0.6) continue;
+        // Fondo deseado; si la manzana no da, se prueban fondos más cortos (mín. 9 m)
+        const want = commercial ? 10 + rnd() * 4 : 14 + rnd() * 4;
         const ux = (b.x - a.x) / seg, uz = (b.z - a.z) / seg;
-        // normal izquierda * side apunta hacia el lote; n (frente) apunta a la calle
-        const lx = -uz * side, lz = ux * side;
-        const hd = commercial ? 7 + rnd() * 4 : 10 + rnd() * 4;
+        const lx = -uz * side, lz = ux * side; // normal hacia el lote; n (frente) apunta a la calle
         const mid = { x: (a.x + b.x) / 2 - ux * hw, z: (a.z + b.z) / 2 - uz * hw };
-        const c = { x: mid.x + lx * (setback + hd), z: mid.z + lz * (setback + hd) };
-        // Marco de mano derecha visto desde la calle: u = derecha del observador que mira la fachada
         const n = { x: -lx, z: -lz }, u = { x: n.z, z: -n.x };
-        const corners = rectCorners(c, u, n, hw, hd);
-        const testPts = [...corners, c, ...corners.map((p) => ({ x: (p.x + c.x) / 2, z: (p.z + c.z) / 2 }))];
-        const ok = testPts.every((p) => Math.abs(p.x) < lim.w && Math.abs(p.z) < lim.h && !map.onRoadCorridor(p.x, p.z, 0.2))
-          && !parks.some((pk) => testPts.some((p) => pointInPoly(p.x, p.z, pk.poly)) || pk.poly.some((q) => pointInPoly(q.x, q.z, corners)));
-        if (!ok) { acc = Math.min(acc, hw); continue; }
-        const cells = cellsOf(corners);
-        if (cells.some((k) => occ.has(k))) { acc = Math.min(acc, hw); continue; }
+        let placed: { c: V2; hd: number; corners: V2[]; cells: string[] } | null = null;
+        for (const hd of [want, want * 0.8, 11, 9]) {
+          if (hd > want) continue;
+          const c = { x: mid.x + lx * (setback + hd), z: mid.z + lz * (setback + hd) };
+          const corners = rectCorners(c, u, n, hw, hd);
+          const testPts = [...corners, c, ...corners.map((p) => ({ x: (p.x + c.x) / 2, z: (p.z + c.z) / 2 }))];
+          const ok = testPts.every((p) => Math.abs(p.x) < lim.w && Math.abs(p.z) < lim.h && !map.onRoadCorridor(p.x, p.z, 0.2))
+            && !parks.some((pk) => testPts.some((p) => pointInPoly(p.x, p.z, pk.poly)) || pk.poly.some((q) => pointInPoly(q.x, q.z, corners)));
+          if (!ok) continue;
+          const cells = cellsOf(corners);
+          if (cells.some((k) => occ.has(k))) continue;
+          placed = { c, hd, corners, cells };
+          break;
+        }
+        if (!placed) { acc = Math.min(acc, hw); continue; }
+        const { c, hd, cells } = placed;
         cells.forEach((k) => occ.add(k));
         lots.push({ c, u, n, hw, hd, kind: commercial ? 'comercio' : 'quinta', road });
         acc = 0;
@@ -267,16 +274,18 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
   const wallCol = col(STUCCO[Math.floor(rnd() * STUCCO.length)]!);
   const fenceCol = rnd() < 0.5 ? wallCol.clone() : col(STUCCO[Math.floor(rnd() * STUCCO.length)]!, 0.95);
   const fenceDark = fenceCol.clone().multiplyScalar(0.6);
-  const WH = style === 'muro' ? 2.2 + rnd() * 0.4 : style === 'reja' ? 0.9 : 0;
+  const WH = style === 'muro' ? 2.4 + rnd() * 0.4 : style === 'reja' ? 0.9 : 0;   // muro de lindero 2,4–2,8 m
   const FENCE_TOP = 2.0;
 
   // --- Casa (se decide antes para alinear puerta, caminería y portón) ---
   const floors = rnd() < 0.25 ? 2 : 1;
-  const FH = 2.9;
+  // Medidas: retiro de frente ≥ 6 m (Ordenanza de Zonificación de Valencia), laterales ≥ 3 m, fondo ≥ 3 m;
+  // altura de piso a piso 3,0 m; casa de 10–16 m de fondo.
+  const FH = 3.0;
   const H = floors * FH;
-  const hA = hw - 1.4 - rnd() * 0.8;
-  const bBack = -hd + 2.5 + rnd() * 1.5;
-  const bFront = Math.min(hd - (style === 'muro' ? 6 : 5 + rnd() * 2), bBack + 9 + rnd() * 4);
+  const hA = hw - 3 - rnd() * 0.8;
+  const bFront = hd - (6 + rnd() * 1.5);
+  const bBack = Math.max(-hd + 3, bFront - (10 + rnd() * 6));
   const gateW = 3.2, gateSide = rnd() < 0.5 ? -1 : 1;
   const gA0 = gateSide * (hw - 1.2) - (gateSide > 0 ? gateW : 0);
   const gA1 = gA0 + gateW;
@@ -313,7 +322,7 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
     }
   }
   // Muros laterales y de fondo (siempre; los linderos en Valencia se cierran)
-  const SH = Math.max(2.2, WH);
+  const SH = Math.max(2.4, WH);
   f.wall(stucco, hw, front, hw, -hd, 0, SH, 3, fenceDark, fenceCol);
   f.wall(stucco, -hw, -hd, -hw, front, 0, SH, 3, fenceDark, fenceCol);
   f.wall(stucco, hw, -hd, -hw, -hd, 0, SH, 3, fenceDark, fenceCol);
