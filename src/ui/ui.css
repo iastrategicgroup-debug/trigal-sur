@@ -122,3 +122,8 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 5px; margin: 0 1px; bo
   color: var(--accent); text-shadow: 4px 4px 0 #000; display: none; }
 
 .banner.small { top: 12%; font-size: 28px; }
+
+.ctl-panel { max-width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+.ctl-sec { margin: 14px 0 4px; font-size: 15px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid rgba(255,179,71,.35); padding-bottom: 2px; }
+.ctl-panel td:first-child { width: 42%; }
+.ctl-tips { margin: 14px 0 6px; padding-left: 18px; font-size: 13px; opacity: .9; line-height: 1.45; }

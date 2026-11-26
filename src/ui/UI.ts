@@ -2,24 +2,47 @@ import type { Settings } from '../core/Storage';
 
 export type ScreenId = 'loading' | 'menu' | 'settings' | 'controls' | 'pause' | 'none';
 
-const CONTROLS: [string, string][] = [
-  ['WASD / Flechas', 'Moverse (trotar por defecto)'],
-  ['Shift', 'Correr (gasta resistencia)'],
-  ['Alt', 'Caminar'],
-  ['Espacio', 'Saltar'],
-  ['Ratón', 'Girar la cámara'],
-  ['Rueda / V', 'Distancia de cámara'],
-  ['Clic izq. / Q', 'Golpear'],
-  ['E', 'Sentarse en un banco · entrar · comprar'],
-  ['1 · 2 · 3 · 0', 'Pistola · Escopeta · AK · Puños; R: recargar'],
-  ['Clic der. + Clic izq.', 'Apuntar y disparar (la AK es automática)'],
-  ['F', 'Subir o bajar de un vehículo (si tiene conductor, lo sacas)'],
-  ['W / S · A / D', 'En vehículo: acelerar / frenar · girar; Espacio: freno de mano'],
-  ['Espacio / Shift', 'En helicóptero: subir / bajar'],
-  ['1 · 2 · 3', 'Comprar en abastos y camiones de comida'],
-  ['M', 'Mapa'],
-  ['Esc', 'Pausa'],
-  ['F3', 'Depuración'],
+/** Controles por sección (título, filas [teclas, acción]). */
+const CONTROLS: [string, [string, string][]][] = [
+  ['A pie', [
+    ['W A S D / Flechas', 'Moverse (trota por defecto)'],
+    ['Shift', 'Correr (gasta resistencia, barra amarilla)'],
+    ['Alt', 'Caminar despacio'],
+    ['Espacio', 'Saltar'],
+    ['Ratón', 'Mirar / girar la cámara'],
+    ['Rueda · V', 'Acercar o alejar la cámara'],
+  ]],
+  ['Pelea y armas', [
+    ['Clic izq. · Q', 'Golpear (combo de 3 golpes con los puños)'],
+    ['1', 'Pistola'],
+    ['2', 'Escopeta (fuerte de cerca)'],
+    ['3', 'AK (automática: mantén el clic)'],
+    ['0', 'Guardar el arma (puños)'],
+    ['Clic der. (mantener)', 'Apuntar: cámara al hombro y mira'],
+    ['Clic der. + Clic izq.', 'Disparar'],
+    ['R', 'Recargar'],
+  ]],
+  ['Vehículos', [
+    ['F', 'Subir / bajarse. Si tiene conductor, lo sacas (sube estrellas)'],
+    ['W · S', 'Acelerar · frenar y retroceder'],
+    ['A · D', 'Girar'],
+    ['Espacio', 'Freno de mano (derrapa)'],
+    ['Helicóptero', 'Espacio sube · Shift baja · W/S avanza · A/D gira'],
+  ]],
+  ['Lugares', [
+    ['E', 'Entrar o salir (anillo amarillo) · comprar · gimnasio · sentarse en un banco'],
+    ['1 · 2 · 3', 'Elegir comida en el menú de compra'],
+    ['E (anillo azul)', 'Carrera de motos en el cerro ($100 al primero)'],
+  ]],
+  ['Juego', [
+    ['Esc', 'Pausa'],
+    ['F3', 'Datos de depuración (FPS, posición)'],
+  ]],
+];
+const TIPS = [
+  'Estrellas ★: suben con golpes, disparos, muertes y robos de carro. Escóndete 20 s de la policía para bajarlas.',
+  'Noche (8 p. m. a 5 a. m.): salen criaturas en la niebla. Los latidos avisan que hay una cerca.',
+  'Objetos que flotan: verde = dinero, rojo = salud, azul = escudo, naranja = balas.',
 ];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
@@ -101,9 +124,16 @@ export class UI {
     const controls = el('div', 'screen dim');
     const cp = el('div', 'panel');
     cp.append(el('h2', '', 'Controles'));
-    const t = el('table');
-    for (const [k, v] of CONTROLS) t.append(el('tr', '', `<td>${k}</td><td>${v}</td>`));
-    cp.append(t, this.buttons([['Volver', () => this.show(this.backTarget)]]));
+    for (const [title, rows] of CONTROLS) {
+      cp.append(el('h3', 'ctl-sec', title));
+      const t = el('table');
+      for (const [k, v] of rows) t.append(el('tr', '', `<td>${k}</td><td>${v}</td>`));
+      cp.append(t);
+    }
+    const tips = el('ul', 'ctl-tips');
+    for (const tip of TIPS) tips.append(el('li', '', tip));
+    cp.append(tips, this.buttons([['Volver', () => this.show(this.backTarget)]]));
+    cp.classList.add('ctl-panel');
     controls.append(cp);
     this.add('controls', controls);
 
