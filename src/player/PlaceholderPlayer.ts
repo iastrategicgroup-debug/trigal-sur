@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 
+/** Física y orientación del jugador (el nombre es histórico: ya no es una cápsula). */
+
 /** Jugador provisional (cápsula). Guarda estado anterior y actual para interpolar el render. */
 export class PlaceholderPlayer {
   readonly object = new THREE.Group();
@@ -10,16 +12,8 @@ export class PlaceholderPlayer {
   facing = 0;
   prevFacing = 0;
 
-  constructor() {
-    const { radius, height } = CONFIG.player;
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(radius, height - radius * 2, 4, 10).translate(0, height / 2, 0),
-      new THREE.MeshLambertMaterial({ color: 0x5a4aa0 }),
-    );
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.25), new THREE.MeshLambertMaterial({ color: 0xffd090 }));
-    nose.position.set(0, height - 0.2, radius);
-    this.object.add(body, nose);
-  }
+  /** El modelo (Avatar) se agrega a `object` desde Game. */
+  constructor() {}
 
   /** Paso fijo: movimiento relativo a la cámara (versión mínima; la máquina de estados llega en fase 3). */
   step(dt: number, axes: { x: number; y: number }, camYaw: number, speed: number): void {

@@ -5,6 +5,8 @@ export class Input {
   mouseDX = 0;
   mouseDY = 0;
   wheel = 0;
+  /** Si el navegador no permite capturar el cursor (p. ej. dentro de un iframe), la cámara igual sigue al ratón. */
+  freeLook = false;
 
   constructor(private readonly target: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -15,10 +17,13 @@ export class Input {
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
     window.addEventListener('blur', () => this.down.clear());
     document.addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !this.freeLook) return;
       this.mouseDX += e.movementX;
       this.mouseDY += e.movementY;
     });
+    target.addEventListener('mousedown', (e) => { const k = `Mouse${e.button}`; if (!this.down.has(k)) this.pressed.add(k); this.down.add(k); });
+    window.addEventListener('mouseup', (e) => this.down.delete(`Mouse${e.button}`));
+    target.addEventListener('contextmenu', (e) => e.preventDefault());
     target.addEventListener('wheel', (e) => { this.wheel += Math.sign(e.deltaY); }, { passive: true });
   }
 

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visor de personajes</title>
+  <style>
+    :root { --bg: #1a120c; --ink: #fff7e8; --accent: #ffb347; --panel: rgba(20,14,10,.85); }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px "Trebuchet MS", system-ui, sans-serif; overflow: hidden; }
+    #v { position: fixed; inset: 0; width: 100%; height: 100%; }
+    #panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(320px, 90vw); background: var(--panel); padding: 12px; overflow: auto; box-sizing: border-box; }
+    #panel h2 { color: var(--accent); margin: 4px 0 10px; font-style: italic; }
+    label { display: flex; justify-content: space-between; gap: 8px; margin: 6px 0; align-items: center; }
+    button, select { font: inherit; background: #2a1e16; color: var(--ink); border: 1px solid #000; padding: 4px 8px; cursor: pointer; }
+    .row { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+    #foto { position: fixed; left: 12px; top: 12px; width: min(260px, 35vw); border: 2px solid #000; display: none; }
+    textarea { width: 100%; height: 140px; background: #0e0a07; color: var(--ink); font: 11px monospace; }
+  </style>
+</head>
+<body>
+  <canvas id="v"></canvas>
+  <img id="foto" alt="Foto de referencia (solo local)" />
+  <div id="panel"></div>
+  <script type="module" src="/src/viewer.ts"></script>
+</body>
+</html>

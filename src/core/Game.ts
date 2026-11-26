@@ -12,6 +12,9 @@ import { Vitals, type DamageSource } from '../player/Vitals';
 import { CityMap, type OsmData } from '../map/osm';
 import { CityWorld } from '../world/CityWorld';
 import { Pickups } from '../world/Pickups';
+import { Avatar } from '../character/Avatar';
+import { joanParams } from '../character/archetypes';
+import { NpcManager } from '../npc/NpcManager';
 
 export type FlowState = 'loading' | 'menu' | 'playing' | 'paused';
 
@@ -53,6 +56,16 @@ export class Game {
   private fpsFrames = 0;
   private saveTimer = 0;
   private tutorial: Tutorial;
+  private joan!: Avatar;
+  private npcs!: NpcManager;
+  /** Estado de acción del jugador (la locomoción se decide por velocidad). */
+  private action: 'ninguna' | 'golpe' | 'saludar' | 'sentado' = 'ninguna';
+  private actionT = 0;
+  private combo = 0;
+  private punchCd = 0;
+  private pendingHit = -1;
+  private idleT = 0;
+  private landT = 0;
   private tut = { moved: 0, ran: false, jumped: false, picked: false };
 
   constructor(private readonly canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
@@ -105,7 +118,13 @@ export class Game {
       ['Trazando las calles', () => { this.map = new CityMap(data); }],
       ['Construyendo El Trigal Sur', () => { this.world = new CityWorld(this.map, this.scene, this.save.settings.shadows); }],
       ['Dibujando el minimapa', () => { this.minimap = new Minimap(this.ui.minimap, this.map, this.world.lotsList); }],
-      ['Creando al protagonista', () => { this.scene.add(this.player.object, this.pickups.group); this.restorePosition(); this.seedPickups(); }],
+      ['Creando a Joan', () => {
+        this.joan = new Avatar(joanParams());
+        this.player.object.add(this.joan.object);
+        this.scene.add(this.player.object, this.pickups.group);
+        this.restorePosition(); this.seedPickups();
+      }],
+      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.scene.add(this.npcs.group); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
     ];
     for (let i = 0; i < tasks.length; i++) {
@@ -145,6 +164,7 @@ export class Game {
   // ---------- Flujo ----------
   private play(): void {
     this.state = 'playing';
+    this.input.freeLook = true;
     this.ui.show('none');
     this.ui.setHudVisible(true);
     this.cam.startIntro();
@@ -153,14 +173,16 @@ export class Game {
   private pause(): void {
     if (this.state !== 'playing') return;
     this.state = 'paused';
+    this.input.freeLook = false;
     this.input.exitLock();
     this.persist();
     this.ui.show('pause', 'pause');
   }
   private autoPause(): void { if (this.state === 'playing' && !this.cam.inIntro) this.pause(); }
-  private resume(): void { this.state = 'playing'; this.ui.show('none'); this.input.requestLock(); }
+  private resume(): void { this.state = 'playing'; this.input.freeLook = true; this.ui.show('none'); this.input.requestLock(); }
   private toMenu(): void {
     this.state = 'menu';
+    this.input.freeLook = false;
     this.persist();
     this.input.exitLock();
     this.ui.setHudVisible(false);
@@ -203,6 +225,8 @@ export class Game {
 
   private die(): void {
     this.deadTimer = 4;
+    this.joan.play('death', 0.1, true);
+    this.action = 'ninguna';
     this.ui.setDead(true);
     // Pierde parte del dinero; queda flotando donde cayó
     const lost = Math.floor(this.money * 0.3);
@@ -213,6 +237,7 @@ export class Game {
   private respawn(): void {
     this.ui.setDead(false);
     this.vitals.respawn();
+    this.joan.play('idle', 0.1, true);
     const s = this.world.spawn;
     this.player.pos.set(s.x, this.world.heightAt(s.x, s.z), s.z);
     this.player.prevPos.copy(this.player.pos);
@@ -238,6 +263,37 @@ export class Game {
     const wantRun = (this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight')) && moving;
     const walking = this.input.isDown('AltLeft') || this.input.isDown('AltRight');
     if (this.input.wasPressed('KeyV')) this.cam.cycleDistance();
+    const aiming = this.input.isDown('Mouse2');
+    this.cam.aim = aiming;
+    // Golpes (clic izquierdo o Q): combo de 3, el tercero más fuerte
+    this.punchCd -= dt;
+    if ((this.input.wasPressed('Mouse0') || this.input.wasPressed('KeyQ')) && this.punchCd <= 0 && this.grounded) {
+      if (aiming) this.player.facing = this.cam.yaw + Math.PI;
+      this.combo = (this.combo + 1) % 3;
+      this.action = 'golpe'; this.actionT = 0.4; this.punchCd = 0.38;
+      this.joan.play(this.combo % 2 ? 'punchL' : 'punchR', 0.06, true);
+      this.pendingHit = 0.14; // el golpe conecta cuando el brazo se extiende
+    }
+    if (this.pendingHit >= 0 && (this.pendingHit -= dt) < 0) {
+      const dmg = this.combo === 2 ? 34 : 20;
+      this.npcs.punch(this.player.pos, this.player.facing, dmg);
+    }
+    // E: saludar al peatón cercano o sentarse en un banco
+    if (this.input.wasPressed('KeyE') && this.action !== 'golpe') {
+      const bench = this.world.benches.find((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4);
+      const npc = this.npcs.nearest(this.player.pos, 3.5);
+      if (this.action === 'sentado') this.action = 'ninguna';
+      else if (npc) {
+        this.npcs.greet(npc, this.player.pos);
+        this.player.facing = Math.atan2(npc.pos.x - this.player.pos.x, npc.pos.z - this.player.pos.z);
+        this.action = 'saludar'; this.actionT = 1.6; this.joan.play('wave', 0.2, true);
+      } else if (bench) {
+        this.player.pos.x = bench.p.x; this.player.pos.z = bench.p.z; this.player.prevPos.copy(this.player.pos);
+        this.player.facing = bench.ry + Math.PI; this.action = 'sentado';
+      }
+    }
+    if (this.action === 'golpe' || this.action === 'saludar') { if ((this.actionT -= dt) <= 0) this.action = 'ninguna'; }
+    if (moving && (this.action === 'saludar' || this.action === 'sentado')) this.action = 'ninguna'; // cualquier movimiento cancela
     if (this.debugOn && this.input.wasPressed('KeyK')) this.hurt(25, 'golpe');           // prueba de daño (solo en F3)
     if (this.debugOn && this.input.wasPressed('KeyL')) this.pickups.drop(this.player.pos.x + 2, this.player.pos.y, this.player.pos.z); // prueba de botín
 
@@ -251,7 +307,10 @@ export class Game {
     // 3. Movimiento horizontal + colisiones (subpasos)
     const s = CONFIG.player.speeds;
     const before = this.player.pos.clone();
-    this.player.step(dt, axes, this.cam.yaw, running ? s.run : walking ? s.walk : s.jog);
+    const lockMove = this.action === 'sentado' || this.action === 'golpe';
+    const spd = aiming ? s.walk * 1.4 : running ? s.run : walking ? s.walk : s.jog;
+    this.player.step(dt, lockMove ? { x: 0, y: 0 } : axes, this.cam.yaw, spd);
+    if (aiming) { this.player.facing = this.cam.yaw + Math.PI; }
     const dx = this.player.pos.x - before.x, dz = this.player.pos.z - before.z;
     this.player.pos.x = before.x; this.player.pos.z = before.z;
     this.world.collision.move(this.player.pos, dx, dz, CONFIG.player.radius);
@@ -273,7 +332,8 @@ export class Game {
       if (this.player.pos.y <= ground) {
         this.player.pos.y = ground;
         this.grounded = true;
-        this.vitals.fall(this.fallStartY - ground) ;
+        this.vitals.fall(this.fallStartY - ground);
+        if (this.fallStartY - ground > 0.4) { this.landT = 0.25; this.joan.play('land', 0.08, true); }
         this.vy = 0;
       }
     } else {
@@ -309,6 +369,17 @@ export class Game {
       writeSave(this.save);
     }
     this.hint = '';
+    if (this.action !== 'sentado') {
+      if (this.npcs.nearest(this.player.pos, 3.5)) this.hint = 'E: Saludar';
+      else if (this.world.benches.some((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4)) this.hint = 'E: Sentarse';
+    } else this.hint = 'E o moverse: Levantarse';
+    // NPC y tráfico (después de las colisiones del jugador)
+    this.npcs.update(dt, {
+      pos: this.player.pos, dead: this.vitals.dead, money: this.money,
+      hurt: (a, src) => this.hurt(a, src),
+      rob: (a) => { this.money = Math.max(0, this.money - a); },
+      notify: (h) => this.ui.toast(h, 3),
+    });
     this.input.endStep();
   }
 
@@ -321,19 +392,45 @@ export class Game {
     }
     this.player.render(playing ? alpha : 1);
     const speed = Math.hypot(this.player.vel.x, this.player.vel.z);
+    if (playing) this.animatePlayer(frameDt, speed);
+    this.ui.setAim(this.cam.aim && playing);
     this.cam.update(frameDt, this.player.object.position, speed > CONFIG.player.speeds.jog + 0.5, speed > 0.3, this.player.facing);
     this.hours = (CONFIG.day.startHour + (this.gameTime / CONFIG.day.realSecondsPerDay) * 24) % 24;
     this.world.update(this.hours, this.player.pos);
     if (playing) {
       this.ui.updateHud({ hours: this.hours, health: this.vitals.health, shield: this.vitals.shield, stamina: this.stamina, hint: this.hint, money: this.money });
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
-      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, this.pickups.positions());
+      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions()]);
       this.saveTimer += frameDt;
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }
     this.updateDebug(frameDt, speed);
     this.renderer.render(this.scene, this.camera);
     this.input.endFrame();
+  }
+
+  /** Máquina de estados de animación del jugador: Reposo, Caminar, Trotar, Correr, Saltar, Caer, Aterrizar, Saludar, Sentado, Golpe, Muerto. */
+  private animatePlayer(dt: number, speed: number): void {
+    const j = this.joan;
+    if (this.vitals.dead) { j.update(dt); return; }
+    this.landT -= dt;
+    const oneShot = (this.action === 'golpe' || this.action === 'saludar' || this.landT > 0) && !j.finished;
+    if (!oneShot) {
+      if (this.action === 'sentado') j.play('sit', 0.25);
+      else if (!this.grounded) j.play(this.vy > 0 ? 'jump' : 'fall', 0.15);
+      else if (speed > 4.6) { j.play('run'); j.setGaitSpeed(speed); }
+      else if (speed > 2.2) { j.play('jog'); j.setGaitSpeed(speed); }
+      else if (speed > 0.25) { j.play('walk'); j.setGaitSpeed(speed); }
+      else if (this.cam.aim) j.play('guard', 0.15);
+      else {
+        // Reposo; tras 8 s sin entrada, mira alrededor / revisa el reloj
+        this.idleT += dt;
+        if (this.idleT > 8) { j.play('lookAround', 0.4); if (this.idleT > 13) this.idleT = 0; }
+        else j.play('idle', 0.25);
+      }
+      if (speed > 0.25 || !this.grounded) this.idleT = 0;
+    }
+    j.update(dt);
   }
 
   private updateDebug(frameDt: number, speed: number): void {
@@ -349,7 +446,7 @@ export class Game {
         `pos ${p.x.toFixed(1)}, ${p.y.toFixed(2)}, ${p.z.toFixed(1)}  (${ll.lat.toFixed(5)}, ${ll.lon.toFixed(5)})\n` +
         `vel ${speed.toFixed(2)} m/s  resistencia ${this.stamina.toFixed(0)}\n` +
         `salud ${this.vitals.health.toFixed(0)}  escudo ${this.vitals.shield.toFixed(0)}  hora ${this.hours.toFixed(2)}\n` +
-        `lotes ${this.world.stats.lots} (quintas ${this.world.stats.quintas}, comercios ${this.world.stats.comercios})\n` +
+        `lotes ${this.world.stats.lots} (quintas ${this.world.stats.quintas}, comercios ${this.world.stats.comercios})  NPC ${this.npcs.count}\n` +
         `K: daño 25 · L: soltar botín`
       : `FPS ${this.fps.toFixed(0)}`;
   }
@@ -359,7 +456,7 @@ export class Game {
     return {
       state: this.state, calls: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles, fps: this.fps,
       pos: this.player.pos.toArray(), health: this.vitals.health, shield: this.vitals.shield, dead: this.vitals.dead, money: this.money,
-      stats: this.world.stats, pickups: this.pickups.count, places: this.world.places.map((p) => p.name),
+      stats: this.world.stats, pickups: this.pickups.count, npcs: this.npcs.count, places: this.world.places.map((p) => p.name),
     };
   }
   debugSetHour(h: number): void { this.gameTime = ((h - CONFIG.day.startHour + 24) % 24) / 24 * CONFIG.day.realSecondsPerDay; }

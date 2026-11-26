@@ -99,3 +99,10 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 5px; margin: 0 1px; bo
   background: #f0e6d0; color: #1a120c; font: 800 12px/1.4 ui-monospace, monospace; text-align: center; border-radius: 3px; }
 
 @media (max-width: 900px) { .dialog { top: 190px; max-width: none; } }
+
+/* Mira al apuntar */
+.cross { position: absolute; left: calc(50% + 0px); top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); display: none; }
+.cross.on { display: block; }
+.cross::before, .cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+.cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
+.cross::after { top: 10px; left: 0; height: 2px; width: 22px; }

@@ -36,12 +36,19 @@ export class ThirdPersonCamera {
 
   /** Limita la distancia si hay paredes entre el objetivo y la cámara (fracción 0..1). */
   occlusion: ((ax: number, az: number, bx: number, bz: number) => number) | null = null;
+  /** Apuntar: cámara al hombro derecho, más cerca y con menos FOV. */
+  aim = false;
+  private aimK = 0;
   private lastMouse = 0;
 
   update(frameDt: number, playerPos: THREE.Vector3, running: boolean, moving = false, facing = 0): void {
-    const goal = CONFIG.camera.distances[this.distIndex]!;
+    this.aimK += ((this.aim ? 1 : 0) - this.aimK) * (1 - Math.exp(-12 * frameDt));
+    const goal = THREE.MathUtils.lerp(CONFIG.camera.distances[this.distIndex]!, 1.7, this.aimK);
     this.dist += (goal - this.dist) * (1 - Math.exp(-8 * frameDt));
     this.target.copy(playerPos).y += CONFIG.camera.targetHeight;
+    // Hombro derecho: desplaza el objetivo a la derecha de la cámara
+    this.target.x += Math.cos(this.yaw) * 0.5 * this.aimK;
+    this.target.z += -Math.sin(this.yaw) * 0.5 * this.aimK;
     const cp = Math.cos(this.pitch);
 
     // Recentrado detrás del personaje tras 3 s sin mover el ratón mientras camina
@@ -71,7 +78,7 @@ export class ThirdPersonCamera {
     }
     this.camera.lookAt(this.target);
 
-    const fovGoal = CONFIG.camera.fov + (running ? CONFIG.camera.fovRunBoost : 0);
+    const fovGoal = CONFIG.camera.fov + (running ? CONFIG.camera.fovRunBoost : 0) - this.aimK * 15;
     if (Math.abs(this.camera.fov - fovGoal) > 0.01) {
       this.camera.fov += (fovGoal - this.camera.fov) * (1 - Math.exp(-5 * frameDt));
       this.camera.updateProjectionMatrix();

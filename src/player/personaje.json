@@ -1,0 +1,27 @@
+{
+  "nombre": "Joan",
+  "_nota": "Rasgos propuestos a partir de assets/referencia/jefe-frente.png (vista frontal, plano medio). Corrígelos aquí o en /personaje.html.",
+  "estatura": 1.75,
+  "contextura": { "musculatura": 0.45, "gordura": 0.45 },
+  "piel": "#c99a78",
+  "rostro": {
+    "forma": "redondeada",
+    "anchoCara": 1.15,
+    "mandibula": 0.95,
+    "menton": 0.9,
+    "pomulos": 1.0,
+    "cejas": { "color": "#1e1612", "grosor": 0.75 },
+    "ojos": { "color": "#3a2618", "separacion": 1.0 },
+    "nariz": { "ancho": 1.05 },
+    "boca": { "sonrisa": 0.7 },
+    "barba": { "tipo": "sombra", "color": "#2a201a", "densidad": 0.35 }
+  },
+  "cabello": { "estilo": "corto_degradado_copete", "color": "#1a1410" },
+  "lentes": { "tipo": "rectangular", "color": "#141414" },
+  "ropa": {
+    "camisa": { "tipo": "manga_larga_botones", "color": "#4a4a8c", "patron": "microcuadro" },
+    "pantalon": { "tipo": "jean", "color": "#1c1c22" },
+    "zapatos": { "color": "#2a2420" },
+    "reloj": { "muneca": "izquierda", "color": "#111111" }
+  }
+}

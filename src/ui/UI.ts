@@ -11,7 +11,7 @@ const CONTROLS: [string, string][] = [
   ['Rueda / V', 'Distancia de cámara'],
   ['Clic izq. / Q', 'Golpear'],
   ['E', 'Saludar / sentarse en un banco'],
-  ['Clic der.', 'Bloquear'],
+  ['Clic der.', 'Apuntar (mantener)'],
   ['F', 'Subir o bajar de un vehículo'],
   ['M', 'Mapa'],
   ['Esc', 'Pausa'],
@@ -51,6 +51,7 @@ export class UI {
   private placesEl: HTMLDivElement;
   private moneyEl: HTMLDivElement;
   private hurtEl: HTMLDivElement;
+  private crossEl: HTMLDivElement;
   private lastStreet = '';
   private streetTimer = 0;
   private toastTimer = 0;
@@ -115,9 +116,10 @@ export class UI {
     this.hintEl = el('div', 'hint');
     this.streetEl = el('div', 'street');
     this.hurtEl = el('div', 'hurt');
+    this.crossEl = el('div', 'cross');
     this.toastEl = el('div', 'toast');
     this.placesEl = el('div', 'places');
-    this.hud.append(this.hurtEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
+    this.hud.append(this.hurtEl, this.crossEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
     this.deathEl = el('div', 'death', '<div>HAS CAÍDO</div>');
 
     this.debug = el('div', 'debug');
@@ -209,5 +211,6 @@ export class UI {
   setPlaces(found: number, total: number): void { this.placesEl.textContent = `Lugares ${found}/${total}`; }
   /** Destello rojo en los bordes al recibir daño. */
   hurt(): void { this.hurtEl.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => this.hurtEl.classList.remove('on'))); }
+  setAim(on: boolean): void { this.crossEl.classList.toggle('on', on); }
   setDead(on: boolean): void { this.deathEl.classList.toggle('on', on); }
 }
