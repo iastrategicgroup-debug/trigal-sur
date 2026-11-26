@@ -42,7 +42,7 @@ export function npcParams(kind: Archetype, seed: number): HumanParams {
     beard: { type: female ? 'ninguna' : pick(r, ['ninguna', 'ninguna', 'sombra', 'candado', 'completa'] as const), color: '#1e1612', density: 0.3 + r() * 0.5 },
     glasses: r() < 0.2 ? pick(r, ['#141414', '#5a3a20', '#a0a0a0']) : null,
     shirt: { type: pick(r, ['manga_corta', 'manga_corta', 'manga_larga', 'franelilla'] as const), color: pick(r, SHIRTS), pattern: 'liso', buttons: r() < 0.3 },
-    pants: { type: female && r() < 0.4 ? 'falda' : r() < 0.15 ? 'short' : 'jean', color: pick(r, PANTS) },
+    pants: { type: female && r() < 0.4 ? 'falda' : r() < 0.15 ? 'short' : !female && r() < 0.55 ? 'jean_ancho' : 'jean', color: pick(r, PANTS) },
     shoes: pick(r, SHOES),
     watch: r() < 0.3,
     cap: null,
@@ -67,9 +67,12 @@ export function npcParams(kind: Archetype, seed: number): HumanParams {
       base.pants = { type: 'short', color: pick(r, ['#1a1a1a', '#2a3a6a', '#5a5a5a']) };
       base.shoes = '#f0f0f0';
       break;
+    case 'hombre':
+      if (r() < 0.4) { base.shirt = { type: 'franelilla', color: pick(r, ['#f2f2ee', '#e8e8e8', '#2a2a2a', '#8a8a8a']), pattern: 'liso', buttons: false }; base.pants = { type: 'jean_ancho', color: pick(r, ['#2a4a7a', '#3a5a8a', '#1c2840']) }; base.shoes = pick(r, ['#f0f0f0', '#1a1612']); base.muscle = 0.45 + r() * 0.35; }
+      break;
     case 'ladron':
       base.shirt = { type: 'manga_larga', color: pick(r, ['#1a1a1c', '#2a2a30', '#3a3020']), pattern: 'liso', buttons: false };
-      base.pants = { type: 'jean', color: '#16161a' };
+      base.pants = { type: 'jean_ancho', color: '#16161a' };
       base.cap = pick(r, ['#101010', '#2a2a2a', '#6a1a1a']);
       base.hair.style = 'corto'; base.muscle = 0.35 + r() * 0.3; base.fat = 0.05 + r() * 0.15;
       base.beard = { type: 'sombra', color: '#1e1612', density: 0.6 };

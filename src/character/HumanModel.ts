@@ -12,7 +12,7 @@ export interface HumanParams {
   beard: { type: 'ninguna' | 'sombra' | 'candado' | 'completa'; color: string; density: number };
   glasses: string | null;
   shirt: { type: 'manga_larga' | 'manga_corta' | 'franelilla'; color: string; pattern: 'liso' | 'microcuadro' | 'rayas' | 'estampado'; buttons: boolean };
-  pants: { type: 'jean' | 'short' | 'falda' | 'mono'; color: string };
+  pants: { type: 'jean' | 'jean_ancho' | 'short' | 'falda' | 'mono'; color: string };
   shoes: string;
   watch: boolean;
   cap?: string | null;          // gorra (color) o null
@@ -53,7 +53,7 @@ class SkinBuilder {
    * Tubo de anillos elípticos. Cada anillo: centro, radios (rx a lo largo de `side`, rz a lo largo de `front`), pesos y color.
    * `axis` define la dirección del tubo; `front` la referencia "hacia delante" (+Z).
    */
-  rings(rs: { c: THREE.Vector3; rx: number; rz: number; w: W; color: THREE.Color; dz?: number; shape?: (a: number) => number; ao?: number }[], sides: number, capStart = false, capEnd = false, g: 0 | 1 = 0): void {
+  rings(rs: { c: THREE.Vector3; rx: number; rz: number; w: W; color: THREE.Color; dz?: number; shape?: (a: number) => number; ao?: number; colorAt?: (a: number) => THREE.Color; folds?: number }[], sides: number, capStart = false, capEnd = false, g: 0 | 1 = 0): void {
     const base = this.pos.length / 3;
     for (let j = 0; j < rs.length; j++) {
       const r = rs[j]!;
@@ -69,8 +69,17 @@ class SkinBuilder {
         const fz = sa > 0 ? r.rz + (r.dz ?? 0) * sa * sa : r.rz; // barriga/pecho hacia delante
         const k = r.shape ? r.shape(a) : 1;                      // relieve muscular por ángulo
         const p = r.c.clone().addScaledVector(side, ca * r.rx * k).addScaledVector(front, sa * fz * k);
-        const band = this.bandOf(r.color);
-        this.vert(p, (i / sides) * 0.5, SkinBuilder.vb(band, j / (rs.length - 1)), r.ao ? r.color.clone().multiplyScalar(r.ao) : r.color, r.w);
+        const col = r.colorAt ? r.colorAt(a) : r.color;
+        const band = this.bandOf(col);
+        let outCol = r.ao ? col.clone().multiplyScalar(r.ao) : col;
+        if (band >= 1 && band <= 3 && (r.folds ?? 1) > 0) {
+          // Pliegues de tela: dos ondas cruzadas => crestas y valles en rombo; los valles se oscurecen
+          const amp = (band === 2 ? 0.05 : 0.04) * (r.folds ?? 1);
+          const fold = 0.5 * Math.sin(a * 5 + j * 1.9 + r.c.y * 30) + 0.5 * Math.sin(a * 3 - j * 1.3 + r.c.x * 40);
+          p.addScaledVector(side, ca * r.rx * amp * fold).addScaledVector(front, sa * r.rz * amp * fold);
+          outCol = outCol.clone().multiplyScalar(1 + fold * 0.16);
+        }
+        this.vert(p, (i / sides) * 0.5, SkinBuilder.vb(band, j / (rs.length - 1)), outCol, r.w);
       }
     }
     const S = sides + 1;
@@ -155,8 +164,8 @@ export function joints(p: HumanParams) {
   return {
     H, sw, hipX,
     root: v(0, 0), hips: v(0, 0.53), spine: v(0, 0.6), chest: v(0, 0.72), neck: v(0, 0.835), head: v(0, 0.875),
-    shoulder_L: v(H * 0.04, 0.8), upperArm_L: v(sw, 0.81), foreArm_L: v(sw + H * 0.02, 0.625), hand_L: v(sw + H * 0.032, 0.475),
-    shoulder_R: v(-H * 0.04, 0.8), upperArm_R: v(-sw, 0.81), foreArm_R: v(-sw - H * 0.02, 0.625), hand_R: v(-sw - H * 0.032, 0.475),
+    shoulder_L: v(H * 0.04, 0.8), upperArm_L: v(sw, 0.797), foreArm_L: v(sw + H * 0.02, 0.625), hand_L: v(sw + H * 0.032, 0.475),
+    shoulder_R: v(-H * 0.04, 0.8), upperArm_R: v(-sw, 0.797), foreArm_R: v(-sw - H * 0.02, 0.625), hand_R: v(-sw - H * 0.032, 0.475),
     thigh_L: v(hipX, 0.52), shin_L: v(hipX * 0.78, 0.285), foot_L: v(hipX * 0.8, 0.048),
     thigh_R: v(-hipX, 0.52), shin_R: v(-hipX * 0.78, 0.285), foot_R: v(-hipX * 0.8, 0.048),
   };
@@ -186,7 +195,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const shoe = new THREE.Color(p.shoes);
   const hairC = new THREE.Color(p.hair.color);
   const m = p.muscle, f = p.fat;
-  B.bandOf = (c) => c === skin ? 0 : c === hairC ? 4 : c === shirt ? (p.shirt.pattern === 'microcuadro' ? 3 : 1) : c === pants ? (p.pants.type === 'jean' ? 2 : 1) : 1;
+  B.bandOf = (c) => c === skin ? 0 : c === hairC ? 4 : c === shirt ? (p.shirt.pattern === 'microcuadro' ? 3 : 1) : c === pants ? (p.pants.type.startsWith('jean') ? 2 : 1) : 1;
 
   // ---------- Torso: pelvis -> cintura -> barriga -> pecho -> hombros ----------
   /** Columna en S: lordosis lumbar (cintura hacia delante), cifosis torácica (espalda alta hacia atrás). */
@@ -228,10 +237,24 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     tor(0.665, waistRx + 0.006 + m * 0.008, 0.066 + f * 0.016, belly * 0.6 + (fem ? 0.01 : 0), [['spine', 0.5], ['chest', 0.5]], shirt),
     tor(0.72, chestRx, 0.07 + m * 0.012 + f * 0.01, (fem ? 0.03 : 0.006) + m * 0.012, [['chest', 1]], shirt),
     tor(0.77, chestRx + 0.008 + m * 0.012, 0.066 + m * 0.01, (fem ? 0.022 : 0.004) + m * 0.01, [['chest', 1]], shirt),
-    tor(0.795, J.sw / H * 0.9, 0.068 + m * 0.012, 0, [['chest', 0.8], ['shoulder_L', 0.1], ['shoulder_R', 0.1]], shirt),
-    tor(0.818, J.sw / H * 0.68, 0.058 + m * 0.008, 0, [['chest', 0.85], ['shoulder_L', 0.075], ['shoulder_R', 0.075]], shirt),
-    tor(0.832, 0.05 + m * 0.01, 0.042, 0, [['chest', 0.6], ['neck', 0.4]], shirt),
+    // Pendiente del trapecio: del deltoides al cuello (sin esquinas)
+    tor(0.792, J.sw / H * 0.86, 0.066 + m * 0.012, 0, [['chest', 0.8], ['shoulder_L', 0.1], ['shoulder_R', 0.1]], shirt),
+    tor(0.806, J.sw / H * 0.66, 0.06 + m * 0.01, 0, [['chest', 0.85], ['shoulder_L', 0.075], ['shoulder_R', 0.075]], shirt),
+    tor(0.82, J.sw / H * 0.42, 0.05 + m * 0.008, 0, [['chest', 0.8], ['neck', 0.2]], shirt),
+    tor(0.832, 0.046 + m * 0.01, 0.04, 0, [['chest', 0.6], ['neck', 0.4]], shirt),
   ];
+  if (p.shirt.type === 'franelilla') {
+    // Franelilla: escote redondo adelante y atrás; solo las tiras cubren los hombros
+    for (const r of torsoRings) {
+      const y = r.c.y / H;
+      if (y < 0.755) continue;
+      (r as typeof r & { colorAt?: (a: number) => THREE.Color }).colorAt = (a) => {
+        const strap = Math.abs(Math.cos(a)) > (y > 0.8 ? 0.45 : 0.25);
+        const scoop = y > 0.77 && (bump(a, FRONT, 0.75) > 0.45 || (y > 0.79 && bump(a, BACK, 0.6) > 0.5));
+        return strap && !scoop ? shirt : skin;
+      };
+    }
+  }
   B.rings(torsoRings, 16, true, false);
   // Cuello
   const neckR = (0.041 + m * 0.012 + f * 0.01) * H;
@@ -246,7 +269,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     { c: new THREE.Vector3(0, 0.852 * H, -0.006 * H), rx: neckR * 1.18, rz: neckR * 1.15, w: [['neck', 1]], color: shirt.clone().multiplyScalar(0.92) },
   ], 10);
   // Cinturón con hebilla
-  if ((p.pants.type === 'jean' || p.pants.type === 'short') && !p.female) {
+  if ((p.pants.type.startsWith('jean') || p.pants.type === 'short') && !p.female) {
     const belt = new THREE.Color(0x1c1612);
     B.rings([
       { c: new THREE.Vector3(0, 0.5 * H, spineZ(0.5) - 0.0), rx: hipRx * H * 1.0, rz: (0.068 + f * 0.016) * H, w: [['hips', 1]], color: belt },
@@ -274,8 +297,11 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     const arm: Parameters<SkinBuilder['rings']>[0] = [];
     // hombro (deltoides)
     const armDir = new THREE.Vector3().subVectors(up, el).normalize(); // del codo al hombro
-    arm.push({ c: up.clone().addScaledVector(armDir, 0.016 * H).add(new THREE.Vector3(-sg * 0.012 * H, 0, 0)), rx: rUp * 0.7, rz: rUp * 0.85, w: [[sh, 0.5], [ua, 0.5]], color: p.shirt.type === 'franelilla' ? skin : shirt, ao: 0.8 });
-    arm.push({ c: up.clone().add(new THREE.Vector3(0, -0.006 * H, 0)), rx: rUp * 1.12, rz: rUp * 1.15, w: [[sh, 0.3], [ua, 0.7]], color: p.shirt.type === 'franelilla' ? skin : shirt });
+    // Deltoides en forma de cúpula (redondo, sin pico)
+    const capCol = p.shirt.type === 'franelilla' ? skin : shirt;
+    arm.push({ c: up.clone().addScaledVector(armDir, 0.02 * H).add(new THREE.Vector3(-sg * 0.016 * H, 0, 0)), rx: rUp * 0.35, rz: rUp * 0.45, w: [[sh, 0.6], [ua, 0.4]], color: capCol, ao: 0.85 });
+    arm.push({ c: up.clone().addScaledVector(armDir, 0.012 * H).add(new THREE.Vector3(-sg * 0.006 * H, 0, 0)), rx: rUp * 0.85, rz: rUp * 0.95, w: [[sh, 0.45], [ua, 0.55]], color: capCol });
+    arm.push({ c: up.clone().add(new THREE.Vector3(0, -0.008 * H, 0)), rx: rUp * 1.1, rz: rUp * 1.12, w: [[sh, 0.3], [ua, 0.7]], color: capCol });
     for (let k = 0; k <= N; k++) {
       const t = k / N;
       const c = up.clone().lerp(el, t);
@@ -283,7 +309,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
       const r = THREE.MathUtils.lerp(rUp, rEl, t) + bulge;
       const covered = sleeveLong || (sleeveShort && t < 0.45) || (p.shirt.type === 'franelilla' && t < 0.0);
       const bi = Math.sin(Math.min(1, t * 1.2) * Math.PI);
-      arm.push({ c, rx: r, rz: r * 1.05, w: [[ua, 1 - smooth(0.75, 1, t) * 0.5], [fa, smooth(0.75, 1, t) * 0.5]], color: covered ? shirt : skin,
+      arm.push({ folds: 1 + 1.5 * Math.exp(-((t - 1) ** 2) / 0.02), c, rx: r, rz: r * 1.05, w: [[ua, 1 - smooth(0.75, 1, t) * 0.5], [fa, smooth(0.75, 1, t) * 0.5]], color: covered ? shirt : skin,
         shape: (a) => 1 + bi * ((0.05 + m * 0.2) * bump(a, FRONT, 0.6) + (0.04 + m * 0.12) * bump(a, BACK, 0.7)) });
     }
     for (let k = 1; k <= N; k++) {
@@ -292,7 +318,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
       const r = THREE.MathUtils.lerp(rEl * 1.05, rWr, t) + Math.sin(t * Math.PI * 0.8) * m * 0.004 * H;
       const cuff = sleeveLong && t > 0.88;
       const fo = Math.sin(Math.min(1, t * 2.2) * Math.PI) * (1 - t);
-      arm.push({ shape: (a) => 1 + fo * (0.06 + m * 0.12) * bump(a, FRONT + 0.6, 0.8), c, rx: r * (cuff ? 1.15 : 1), rz: r * 0.9 * (cuff ? 1.15 : 1), w: [[fa, 1 - smooth(0.8, 1, t) * 0.5], [ha, smooth(0.8, 1, t) * 0.5], [ua, (1 - smooth(0, 0.2, t)) * 0.4]], color: sleeveLong ? shirt : skin });
+      arm.push({ folds: 1 + 1.5 * Math.exp(-(t * t) / 0.02) + (t > 0.85 ? 1 : 0), shape: (a) => 1 + fo * (0.06 + m * 0.12) * bump(a, FRONT + 0.6, 0.8), c, rx: r * (cuff ? 1.15 : 1), rz: r * 0.9 * (cuff ? 1.15 : 1), w: [[fa, 1 - smooth(0.8, 1, t) * 0.5], [ha, smooth(0.8, 1, t) * 0.5], [ua, (1 - smooth(0, 0.2, t)) * 0.4]], color: sleeveLong ? shirt : skin });
     }
     B.rings(arm, 10, true, true);
     // Mano: palma + 4 dedos (3 falanges, ligeramente flexionados) + pulgar
@@ -339,7 +365,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     const tb = `thigh_${s}` as BoneName, sb = `shin_${s}` as BoneName, fb = `foot_${s}` as BoneName;
     const rTh = (0.04 + m * 0.01 + f * 0.016 + (fem ? 0.006 : 0)) * H, rKn = (0.031 + f * 0.006) * H, rAn = (0.021 + f * 0.003) * H;
     const legCol = (t: number) => {
-      if (p.pants.type === 'jean' || p.pants.type === 'mono') return pants;
+      if (p.pants.type.startsWith('jean') || p.pants.type === 'mono') return pants;
       if (p.pants.type === 'short') return t < 0.45 ? pants : skin;
       return t < 0.6 ? pants : skin; // falda: muslo cubierto por la falda (se dibuja aparte)
     };
@@ -348,24 +374,30 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     for (let k = 0; k <= N; k++) {
       const t = k / N;
       const c = th.clone().lerp(kn, t).add(new THREE.Vector3(0, 0.012 * H * (1 - t), 0));
-      const r = THREE.MathUtils.lerp(rTh, rKn, Math.pow(t, 0.8));
-      const q = Math.sin(Math.min(1, t * 1.1) * Math.PI);
-      leg.push({ shape: (a) => 1 + q * ((0.05 + m * 0.12) * bump(a, FRONT, 0.7) + 0.04 * bump(a, BACK, 0.6) + (0.03 + m * 0.06) * bump(a, FRONT - 1.1, 0.5)), c, rx: r * 0.95, rz: r, w: [[tb, 1 - smooth(0.8, 1, t) * 0.5], [sb, smooth(0.8, 1, t) * 0.5], ['hips', (1 - smooth(0, 0.25, t)) * 0.5]], color: legCol(t * 0.5) });
+      const baggy = p.pants.type === 'jean_ancho';
+      const r = baggy ? THREE.MathUtils.lerp(rTh * 1.28, rTh * 1.12, t) : THREE.MathUtils.lerp(rTh, rKn, Math.pow(t, 0.8));
+      const q = baggy ? 0.15 : Math.sin(Math.min(1, t * 1.1) * Math.PI);
+      leg.push({ folds: 1 + 1.2 * Math.exp(-((t - 1) ** 2) / 0.02) + 0.6 * Math.exp(-(t * t) / 0.01), shape: (a) => 1 + q * ((0.05 + m * 0.12) * bump(a, FRONT, 0.7) + 0.04 * bump(a, BACK, 0.6) + (0.03 + m * 0.06) * bump(a, FRONT - 1.1, 0.5)), c, rx: r * 0.95, rz: r, w: [[tb, 1 - smooth(0.8, 1, t) * 0.5], [sb, smooth(0.8, 1, t) * 0.5], ['hips', (1 - smooth(0, 0.25, t)) * 0.5]], color: legCol(t * 0.5) });
     }
     for (let k = 1; k <= N; k++) {
       const t = k / N;
       const c = kn.clone().lerp(an, t);
       const calf = Math.sin(Math.min(1, t * 1.6) * Math.PI) * (0.008 + m * 0.006) * H;
-      const r = THREE.MathUtils.lerp(rKn, rAn, t) + calf;
+      const baggy = p.pants.type === 'jean_ancho';
+      // Jean ancho: pierna recta y amplia que se arruga ("se apila") sobre el zapato
+      const stack = baggy && t > 0.62 ? 1 + 0.09 * Math.sin((t - 0.62) * 48) : 1;
+      const r = baggy ? rTh * (1.1 + 0.06 * t) * stack : THREE.MathUtils.lerp(rKn, rAn, t) + calf;
       const jeanFlare = p.pants.type === 'jean' || p.pants.type === 'mono' ? 0.004 * H * t : 0;
-      const cv = Math.sin(Math.min(1, t * 1.8) * Math.PI) * (t < 0.6 ? 1 : 0.4);
-      leg.push({ shape: (a) => 1 + cv * (0.08 + m * 0.14) * bump(a, BACK, 0.9), c: c.add(new THREE.Vector3(0, 0, -calf * 0.4)), rx: r + jeanFlare, rz: r + jeanFlare, w: [[sb, 1 - smooth(0.85, 1, t) * 0.5], [fb, smooth(0.85, 1, t) * 0.5], [tb, (1 - smooth(0, 0.2, t)) * 0.4]], color: legCol(0.5 + t * 0.5) });
+      if (baggy && k === N) c.y -= 0.03 * H; // el ruedo cubre la parte de arriba del zapato
+      const cv = baggy ? 0 : Math.sin(Math.min(1, t * 1.8) * Math.PI) * (t < 0.6 ? 1 : 0.4);
+      leg.push({ folds: 1 + 1.2 * Math.exp(-(t * t) / 0.02) + (t > 0.7 ? 1.8 : 0), shape: (a) => 1 + cv * (0.08 + m * 0.14) * bump(a, BACK, 0.9), c: c.add(new THREE.Vector3(0, 0, -calf * 0.4)), rx: r + jeanFlare, rz: r + jeanFlare, w: [[sb, 1 - smooth(0.85, 1, t) * 0.5], [fb, smooth(0.85, 1, t) * 0.5], [tb, (1 - smooth(0, 0.2, t)) * 0.4]], color: legCol(0.5 + t * 0.5) });
     }
     B.rings(leg, 10);
     // Zapato con suela diferenciada
     const fc = an.clone().add(new THREE.Vector3(0, -0.02 * H, 0.04 * H));
-    B.ellipsoid(fc.clone().add(new THREE.Vector3(0, 0.008 * H, 0)), new THREE.Vector3(0.033 * H, 0.03 * H, 0.075 * H), shoe, [[fb, 1]], 6, 0, true);
-    B.box(fc.clone().add(new THREE.Vector3(0, -0.016 * H, 0)), new THREE.Vector3(0.034 * H, 0.006 * H, 0.074 * H), new THREE.Color(0x1a1612).lerp(new THREE.Color(0xe8e0d0), p.shoes === '#f0f0f0' ? 1 : 0.15), [[fb, 1]]);
+    const chunky = p.pants.type === 'jean_ancho' || p.shoes === '#f0f0f0' ? 1.15 : 1;
+    B.ellipsoid(fc.clone().add(new THREE.Vector3(0, 0.01 * H, 0)), new THREE.Vector3(0.034 * H * chunky, 0.032 * H, 0.077 * H * chunky), shoe, [[fb, 1]], 7, 0, true);
+    B.box(fc.clone().add(new THREE.Vector3(0, -0.016 * H, 0.002 * H)), new THREE.Vector3(0.036 * H * chunky, 0.008 * H * chunky, 0.078 * H * chunky), new THREE.Color(0x1a1612).lerp(new THREE.Color(0xe8e0d0), chunky > 1 ? 1 : 0.15), [[fb, 1]]);
   }
   // Falda
   if (p.pants.type === 'falda') {
@@ -381,7 +413,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const hc = new THREE.Vector3(0, 0.875 * H + headH * 0.4, 0.008 * H);
   const hrx = headH * 0.37 * p.face.width * (1 + f * 0.08), hry = headH * 0.52, hrz = headH * 0.46;
   {
-    const rows = 22, cols = 26;
+    const rows = 28, cols = 44;
     const base = B.pos.length / 3;
     const G = (dx: number, dy: number, sx: number, sy: number) => Math.exp(-(dx * dx) / sx - (dy * dy) / sy);
     for (let j = 0; j <= rows; j++) {
@@ -401,15 +433,15 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         if (z > 0.2) {
           const fz = Math.min(1, (z - 0.2) / 0.4);
           let dz = 0;
-          dz -= 0.075 * (G(ux - 0.34, uy - 0.1, 0.018, 0.01) + G(ux + 0.34, uy - 0.1, 0.018, 0.01));          // cuencas
-          dz += 0.05 * G(0, uy - 0.24, 0.35, 0.004) * (Math.abs(ux) < 0.62 ? 1 : 0.3);                       // arco superciliar
-          const noseAmt = uy < 0.14 && uy > -0.3 ? 0.04 + 0.13 * Math.min(1, (0.14 - uy) / 0.36) : 0;        // puente -> punta
-          dz += noseAmt * G(ux, 0, 0.004 + Math.max(0, 0.06 - uy) * 0.03, 1) * (uy < -0.27 ? Math.max(0, 1 - (-0.27 - uy) * 12) : 1);
-          dz += 0.04 * (G(ux - 0.1, uy + 0.27, 0.003, 0.002) + G(ux + 0.1, uy + 0.27, 0.003, 0.002));       // aletas de la nariz
-          dz += 0.035 * (G(ux - 0.45, uy + 0.05, 0.02, 0.015) + G(ux + 0.45, uy + 0.05, 0.02, 0.015));       // pómulos
-          dz += 0.045 * G(ux, uy + 0.44, 0.05, 0.0025) + 0.035 * G(ux, uy + 0.52, 0.04, 0.0025);             // labios
-          dz -= 0.03 * G(ux, uy + 0.6, 0.05, 0.003);                                                         // surco bajo el labio
-          dz += 0.06 * G(ux, uy + 0.8, 0.04, 0.012) * p.face.chin;                                          // mentón
+          dz -= 0.11 * (G(ux - 0.33, uy - 0.06, 0.02, 0.012) + G(ux + 0.33, uy - 0.06, 0.02, 0.012));          // cuencas
+          dz += 0.08 * G(0, uy - 0.2, 0.3, 0.006) * (Math.abs(ux) < 0.62 ? 1 : 0.3);                        // arco superciliar
+          const noseAmt = uy < 0.14 && uy > -0.32 ? 0.06 + 0.24 * Math.min(1, (0.14 - uy) / 0.38) : 0;        // puente -> punta (~3 cm)
+          dz += noseAmt * G(ux, 0, 0.007 + Math.max(0, 0.06 - uy) * 0.05, 1) * (uy < -0.27 ? Math.max(0, 1 - (-0.27 - uy) * 10) : 1);
+          dz += 0.08 * (G(ux - 0.1, uy + 0.27, 0.005, 0.003) + G(ux + 0.1, uy + 0.27, 0.005, 0.003));       // aletas de la nariz
+          dz += 0.06 * (G(ux - 0.45, uy + 0.02, 0.025, 0.015) + G(ux + 0.45, uy + 0.02, 0.025, 0.015));      // pómulos
+          dz += 0.08 * G(ux, uy + 0.44, 0.045, 0.003) + 0.075 * G(ux, uy + 0.52, 0.04, 0.003);              // labios
+          dz -= 0.045 * G(ux, uy + 0.61, 0.05, 0.003);                                                       // surco bajo el labio
+          dz += 0.1 * G(ux, uy + 0.78, 0.04, 0.014) * p.face.chin;                                          // mentón
           z += dz * fz;
           x *= 1 + 0.05 * G(Math.abs(ux) - 0.6, uy + 0.55, 0.02, 0.02) * p.face.jaw;                          // ángulo mandibular
         }
@@ -427,7 +459,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     }
   }
   // Orejas
-  for (const sg of [1, -1]) B.ellipsoid(new THREE.Vector3(sg * hrx * 0.98, hc.y - headH * 0.02, hc.z - headH * 0.04), new THREE.Vector3(0.006 * H, 0.033 * H, 0.018 * H), skin.clone().multiplyScalar(0.92), [['head', 1]], 4);
+  for (const sg of [1, -1]) B.ellipsoid(new THREE.Vector3(sg * hrx * 0.98, hc.y - headH * 0.02, hc.z - headH * 0.04), new THREE.Vector3(0.005 * H, 0.028 * H, 0.016 * H), skin.clone().multiplyScalar(0.92), [['head', 1]], 4);
   // Cabello
   if (p.hair.style !== 'calvo') {
     const rows = 9, cols = 14;
@@ -440,15 +472,18 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         let x = Math.sin(ph) * Math.cos(th), y = Math.cos(ph), z = Math.sin(ph) * Math.sin(th);
         const frontness = Math.max(0, z);
         // Línea del cabello: más alta en la frente; el degradado deja los lados cortos (pegados)
-        const hairline = 0.42 - frontness * 0.1;
+        const hairline = p.hair.style === 'degradado' ? 0.42 + frontness * 0.12 : 0.42 - frontness * 0.1; // degradado: frente despejada
         const isSide = Math.abs(x) > 0.6 && z < 0.5;
-        const thick = p.hair.style === 'degradado' ? (isSide ? 1.015 : 1.07) : p.hair.style === 'rizado' ? 1.14 : 1.06;
+        const thick = (p.hair.style === 'degradado' ? (isSide ? 1.035 : 1.07) : p.hair.style === 'rizado' ? 1.14 : 1.06) * (z < 0 ? 1.06 : 1); // atrás el cráneo es más prominente
         // Copete: frente-arriba levantado
         const lift = p.hair.style === 'degradado' ? Math.max(0, z) * Math.max(0, y - 0.6) * 0.35 : 0;
         y += lift;
-        const P = new THREE.Vector3(hc.x + x * hrx * thick, hc.y + y * hry * (thick - 0.01) + headH * 0.02, hc.z + z * hrz * thick);
-        keep.push(y > hairline || (z < 0.2 && y > -0.42)); // nuca cubierta hasta abajo
-        B.vert(P, (i / cols) * 0.5, SkinBuilder.vb(4, j / rows), hairC, [['head', 1]]);
+        const fade = p.hair.style === 'degradado' ? smooth(0.4, 0.8, y) : 1;      // 0 lados/nuca (rapado) .. 1 coronilla
+        const th2 = p.hair.style === 'degradado' ? THREE.MathUtils.lerp(1.02 * (z < 0 ? 1.1 : 1), 1.075 * (z < 0 ? 1.06 : 1), fade) : thick;
+        const P = new THREE.Vector3(hc.x + x * hrx * th2, hc.y + y * hry * (th2 - 0.01) + headH * 0.02, hc.z + z * hrz * th2);
+        keep.push(y > hairline || (z < -0.12 && y > -0.42)); // nuca cubierta hasta abajo (solo detrás de las orejas)
+        const hcol = p.hair.style === 'degradado' ? hairC.clone().lerp(skin.clone().multiplyScalar(0.5), (1 - smooth(0.25, 0.7, y)) * 0.6) : hairC;
+        B.vert(P, (i / cols) * 0.5, SkinBuilder.vb(4, j / rows), hcol, [['head', 1]]);
       }
     }
     const C = cols + 1;
@@ -536,78 +571,108 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
     g.strokeStyle = 'rgba(20,10,15,0.6)'; g.lineWidth = 2; g.beginPath(); g.moveTo(S * 0.36, S * 0.77); g.quadraticCurveTo(S * 0.5, S * 0.8, S * 0.64, S * 0.77); g.stroke();
     const t0 = new THREE.CanvasTexture(c); t0.colorSpace = THREE.SRGBColorSpace; return t0;
   }
-  // Las coordenadas: u = 0.5 + x/2, v = 0.5 + y/2 (y hacia arriba) => en el lienzo y se invierte
+  // Pintura de rostro al estilo de la época: sombreado horneado (luz desde arriba y de frente),
+  // volúmenes con degradados suaves, rasgos naturales. u = 0.5 + x/2, v = 0.5 + y/2 (y arriba).
   const X = (x: number) => S * (0.5 + x * 0.5), Y = (y: number) => S * (0.5 - y * 0.5);
-  // Sombreado suave: mejillas y bajo la mandíbula
-  const rad = (x: number, y: number, r: number, col: string) => { const gr = g.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), r * S); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); };
-  rad(0.38, -0.15, 0.12, 'rgba(200,90,80,0.12)');
-  rad(-0.38, -0.15, 0.12, 'rgba(200,90,80,0.12)');
-  rad(0, -0.85, 0.25, 'rgba(0,0,0,0.18)');
-  rad(0.62, 0.05, 0.12, 'rgba(0,0,0,0.12)');
-  rad(-0.62, 0.05, 0.12, 'rgba(0,0,0,0.12)');
-  // Barba
+  const sk = skin;
+  const shade = (k: number, a: number) => { const c2 = sk.clone().multiplyScalar(k); c2.r *= 0.92; c2.b *= 0.85; return `rgba(${Math.round(c2.r * 255)},${Math.round(c2.g * 255)},${Math.round(c2.b * 255)},${a})`; };
+  const light = (a: number) => { const c2 = sk.clone().lerp(new THREE.Color(1, 0.95, 0.88), 0.45); return `rgba(${Math.round(c2.r * 255)},${Math.round(c2.g * 255)},${Math.round(c2.b * 255)},${a})`; };
+  const blob = (x: number, y: number, rx: number, ry: number, col: string, rot = 0) => {
+    g.save(); g.translate(X(x), Y(y)); g.rotate(rot); g.scale(rx * S, ry * S);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1); gr.addColorStop(0, col); gr.addColorStop(1, col.replace(/[\d.]+\)$/, '0)'));
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore();
+  };
+  // Piel con variación sutil
+  let sd = 11; const rr = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 90; i++) blob(rr() * 2 - 1, rr() * 2 - 1, 0.05 + rr() * 0.1, 0.05 + rr() * 0.1, rr() < 0.5 ? shade(0.9, 0.12) : light(0.08));
+  // Volúmenes grandes: frente iluminada, sienes y laterales en sombra, mejillas, mandíbula
+  blob(0, 0.6, 0.55, 0.3, light(0.35));
+  for (const sg of [1, -1]) {
+    blob(sg * 0.8, 0.1, 0.25, 0.7, shade(0.62, 0.55));           // laterales de la cara
+    blob(sg * 0.44, -0.06, 0.2, 0.12, light(0.3));                // pómulos
+    blob(sg * 0.4, -0.3, 0.17, 0.2, shade(0.78, 0.35));           // mejilla hundida bajo el pómulo
+    blob(sg * 0.6, -0.55, 0.22, 0.25, shade(0.7, 0.4));           // ángulo de la mandíbula
+  }
+  blob(0, -0.95, 0.6, 0.18, shade(0.55, 0.55));                   // bajo la mandíbula
+  blob(0, -0.78, 0.18, 0.1, light(0.3));                          // mentón
+  // Arco superciliar y cuencas
+  for (const sg of [1, -1]) {
+    blob(sg * 0.34, 0.2, 0.22, 0.06, light(0.25));
+    blob(sg * 0.33, 0.08, 0.2, 0.12, shade(0.55, 0.55));
+    blob(sg * 0.22, 0.03, 0.08, 0.08, shade(0.5, 0.4));           // lagrimal / junto a la nariz
+    blob(sg * 0.33, -0.06, 0.16, 0.05, shade(0.7, 0.35));         // ojera
+  }
+  // Barba: sombra continua + puntos finos
   if (p.beard.type !== 'ninguna') {
     const bc = new THREE.Color(p.beard.color);
-    const dens = p.beard.type === 'completa' ? 0.9 : p.beard.type === 'candado' ? 0.75 : p.beard.density;
-    let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 2600 * dens; i++) {
-      const x = (r() - 0.5) * 1.5, y = -0.2 - r() * 0.8;
-      const inJaw = p.beard.type === 'candado' ? Math.abs(x) < 0.32 && y < -0.42 : y < -0.25 - Math.max(0, 0.45 - Math.abs(x)) * 0 && Math.abs(x) < 0.72 - (y + 1) * 0.1;
-      const notMouth = !(Math.abs(x) < 0.22 && y > -0.52 && y < -0.4);
-      if (!inJaw || !notMouth) continue;
-      g.fillStyle = hex(bc, 1); g.globalAlpha = 0.25 + dens * 0.5;
-      g.fillRect(X(x), Y(y), 1.6, 1.6);
+    const dens = p.beard.type === 'completa' ? 0.95 : p.beard.type === 'candado' ? 0.8 : p.beard.density;
+    const bcol = (a: number) => `rgba(${Math.round(bc.r * 255)},${Math.round(bc.g * 255)},${Math.round(bc.b * 255)},${a})`;
+    if (p.beard.type === 'candado') { blob(0, -0.66, 0.22, 0.2, bcol(0.55 * dens)); blob(0, -0.38, 0.2, 0.05, bcol(0.5 * dens)); }
+    else {
+      for (const sg of [1, -1]) blob(sg * 0.5, -0.5, 0.3, 0.38, bcol(0.4 * dens));
+      blob(0, -0.72, 0.4, 0.22, bcol(0.5 * dens)); blob(0, -0.38, 0.22, 0.05, bcol(0.45 * dens));
     }
-    g.globalAlpha = 1;
+    for (let i = 0; i < 2200 * dens; i++) {
+      const x = (rr() - 0.5) * 1.5, y = -0.3 - rr() * 0.7;
+      if (Math.abs(x) > 0.75 - (y + 1) * 0.05 || (Math.abs(x) < 0.25 && y > -0.56 && y < -0.42)) continue;
+      if (p.beard.type === 'candado' && !(Math.abs(x) < 0.3 && y < -0.42) && !(Math.abs(x) < 0.22 && y > -0.42 && y < -0.34)) continue;
+      g.fillStyle = bcol(0.35 + dens * 0.3); g.fillRect(X(x), Y(y), 1.2, 1.2);
+    }
   }
-  // Ojos
-  const eyeY = 0.1, eyeX = 0.34;
+  // Ojos: almendrados, más pequeños y oscuros; párpado superior grueso en sombra
+  const eyeY = 0.06, eyeX = 0.33;
   for (const sg of [1, -1]) {
     const cx = X(sg * eyeX), cy = Y(eyeY);
-    g.fillStyle = 'rgba(60,30,20,0.2)'; g.beginPath(); g.ellipse(cx, cy + 2, 24, 13, 0, 0, Math.PI * 2); g.fill(); // cuenca
-    g.fillStyle = '#f4efe6'; g.beginPath(); g.ellipse(cx, cy, 18, 8.5, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = p.face.eye; g.beginPath(); g.arc(cx + sg * -1, cy, 7, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#0a0806'; g.beginPath(); g.arc(cx + sg * -1, cy, 3.2, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#ffffff'; g.fillRect(cx + 1, cy - 3, 2, 2);
-    g.strokeStyle = 'rgba(20,12,8,0.95)'; g.lineWidth = 3.5;
-    g.beginPath(); g.ellipse(cx, cy + 1, 18.5, 9.5, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke(); // párpado superior
-    for (let k = 0; k < 9; k++) { const a = Math.PI * (1.12 + k * 0.09); const ex = cx + Math.cos(a) * 18.5, ey = cy + 1 + Math.sin(a) * 9.5; g.lineWidth = 1.2; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + Math.cos(a) * 3, ey - 3); g.stroke(); } // pestañas
-    g.strokeStyle = 'rgba(120,70,50,0.45)'; g.lineWidth = 1.5;
-    g.beginPath(); g.ellipse(cx, cy - 1, 17, 8, 0, Math.PI * 0.1, Math.PI * 0.9); g.stroke(); // párpado inferior
-    g.strokeStyle = 'rgba(100,60,40,0.25)'; g.lineWidth = 1.2;
-    g.beginPath(); g.ellipse(cx, cy - 5, 19, 13, 0, Math.PI * 1.15, Math.PI * 1.85); g.stroke(); // pliegue del párpado
-    // Ceja
-    // Ceja: trazo base + pelos
-    g.strokeStyle = p.face.brow; g.globalAlpha = 0.55; g.lineWidth = 3 + p.face.browThick * 5; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(cx - sg * 20, Y(eyeY + 0.17)); g.quadraticCurveTo(cx, Y(eyeY + 0.25), cx + sg * 22, Y(eyeY + 0.18)); g.stroke();
-    g.globalAlpha = 0.9; g.lineWidth = 1;
-    for (let k = 0; k < 26; k++) { const t2 = k / 25; const bx = cx - sg * 20 + sg * 42 * t2, by = Y(eyeY + 0.17 + Math.sin(t2 * Math.PI) * 0.06) + 3; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sg * 4, by - 4 - p.face.browThick * 3); g.stroke(); }
+    g.save();
+    g.beginPath(); g.moveTo(cx - 15, cy + 1); g.quadraticCurveTo(cx - 2, cy - 8, cx + 15, cy); g.quadraticCurveTo(cx + 2, cy + 6, cx - 15, cy + 1); g.closePath();
+    g.fillStyle = '#d9cfc3'; g.fill(); g.clip();
+    const ix = cx - sg * 0.5;
+    g.fillStyle = p.face.eye; g.beginPath(); g.arc(ix, cy - 0.5, 5.6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(0,0,0,0.85)'; g.beginPath(); g.arc(ix, cy - 0.5, 2.4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(cx - 16, cy - 9, 32, 5);          // sombra del párpado sobre el ojo
+    g.restore();
+    g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillRect(ix + 1.5, cy - 3, 1.5, 1.5);  // brillo
+    g.strokeStyle = 'rgba(25,15,10,0.9)'; g.lineWidth = 2.6; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(cx - 15, cy + 1); g.quadraticCurveTo(cx - 2, cy - 8.5, cx + 15, cy); g.stroke();   // línea del párpado
+    g.strokeStyle = shade(0.6, 0.6); g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(cx - 14, cy - 5); g.quadraticCurveTo(cx - 1, cy - 14, cx + 15, cy - 5); g.stroke(); // pliegue
+    g.strokeStyle = shade(0.75, 0.5); g.lineWidth = 1.2;
+    g.beginPath(); g.moveTo(cx - 12, cy + 3); g.quadraticCurveTo(cx, cy + 6, cx + 13, cy + 2); g.stroke();      // párpado inferior
+    // Ceja: masa + pelos inclinados
+    const bc = p.face.brow;
+    g.globalAlpha = 0.5; g.strokeStyle = bc; g.lineWidth = 3 + p.face.browThick * 5;
+    g.beginPath(); g.moveTo(cx - sg * 18, Y(eyeY + 0.14)); g.quadraticCurveTo(cx - sg * 2, Y(eyeY + 0.2), cx + sg * 20, Y(eyeY + 0.15)); g.stroke();
+    g.globalAlpha = 0.85; g.lineWidth = 1;
+    for (let k = 0; k < 30; k++) { const t2 = k / 29; const bx = cx - sg * 18 + sg * 38 * t2, by = Y(eyeY + 0.14 + Math.sin(t2 * Math.PI) * 0.055) + 2 + rr() * 2; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sg * (3 + t2 * 3), by - 3 - p.face.browThick * 2); g.stroke(); }
     g.globalAlpha = 1;
   }
-  // Nariz
-  g.strokeStyle = 'rgba(80,40,25,0.4)'; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(X(-0.06), Y(0.0)); g.quadraticCurveTo(X(-0.1), Y(-0.2), X(-0.13), Y(-0.24)); g.stroke();
-  g.fillStyle = 'rgba(60,25,15,0.55)';
-  for (const sg of [1, -1]) { g.beginPath(); g.ellipse(X(sg * 0.1), Y(-0.27), 7, 4, 0, 0, Math.PI * 2); g.fill(); }
-  g.strokeStyle = 'rgba(80,40,25,0.35)'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(-0.17), Y(-0.24)); g.quadraticCurveTo(X(0), Y(-0.32), X(0.17), Y(-0.24)); g.stroke();
-  rad(0, -0.22, 0.07, 'rgba(255,255,255,0.12)');
-  // Boca con sonrisa
-  const sm = p.face.smile;
-  // Poros y textura de piel
-  for (let i = 0; i < 1800; i++) { const x = Math.random() * S, yy = Math.random() * S; g.fillStyle = `rgba(90,50,35,${Math.random() * 0.06})`; g.fillRect(x, yy, 1.5, 1.5); }
-  rad(0, 0.55, 0.22, 'rgba(255,240,225,0.10)'); // brillo de la frente
-  g.fillStyle = 'rgba(150,70,60,0.85)';
-  g.beginPath();
-  g.moveTo(X(-0.3), Y(-0.47 + sm * 0.05));
-  g.quadraticCurveTo(X(0), Y(-0.43), X(0.3), Y(-0.47 + sm * 0.05));
-  g.quadraticCurveTo(X(0), Y(-0.55 - sm * 0.06), X(-0.3), Y(-0.47 + sm * 0.05));
-  g.fill();
-  if (sm > 0.5) { g.fillStyle = '#f2ece2'; g.beginPath(); g.moveTo(X(-0.23), Y(-0.47)); g.quadraticCurveTo(X(0), Y(-0.45), X(0.23), Y(-0.47)); g.quadraticCurveTo(X(0), Y(-0.51), X(-0.23), Y(-0.47)); g.fill(); }
-  // Labio inferior con brillo
-  g.fillStyle = 'rgba(175,95,85,0.7)'; g.beginPath(); g.ellipse(X(0), Y(-0.53 - sm * 0.04), S * 0.09, S * 0.018, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = 'rgba(255,230,220,0.25)'; g.beginPath(); g.ellipse(X(0.02), Y(-0.54 - sm * 0.04), S * 0.03, S * 0.006, 0, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = 'rgba(70,30,20,0.6)'; g.lineWidth = 1.5;
-  for (const sg of [1, -1]) { g.beginPath(); g.moveTo(X(sg * 0.3), Y(-0.36)); g.quadraticCurveTo(X(sg * 0.33), Y(-0.45), X(sg * 0.27), Y(-0.52)); g.stroke(); } // surcos de la sonrisa
+  // Nariz: puente iluminado, laterales en sombra, punta y aletas, sombra bajo la nariz
+  blob(0, -0.05, 0.05, 0.2, light(0.45));
+  for (const sg of [1, -1]) { blob(sg * 0.1, -0.08, 0.06, 0.2, shade(0.65, 0.5)); blob(sg * 0.13, -0.26, 0.06, 0.05, shade(0.6, 0.55)); }
+  blob(0, -0.24, 0.07, 0.05, light(0.5));
+  g.fillStyle = shade(0.35, 0.8);
+  for (const sg of [1, -1]) { g.beginPath(); g.ellipse(X(sg * 0.075), Y(-0.29), 4.5, 2.4, sg * 0.3, 0, Math.PI * 2); g.fill(); }
+  blob(0, -0.33, 0.12, 0.035, shade(0.6, 0.55));
+  blob(0, -0.37, 0.035, 0.04, shade(0.75, 0.35));               // filtrum
+  // Surcos nasogenianos
+  for (const sg of [1, -1]) {
+    g.strokeStyle = shade(0.6, 0.35); g.lineWidth = 3;
+    g.beginPath(); g.moveTo(X(sg * 0.2), Y(-0.28)); g.quadraticCurveTo(X(sg * (0.3 + p.face.smile * 0.05)), Y(-0.42), X(sg * 0.26), Y(-0.55)); g.stroke();
+  }
+  // Boca: labio superior oscuro, inferior más claro y lleno, comisuras, sombra bajo el labio
+  const sm = p.face.smile * 0.6;
+  const lip = sk.clone().lerp(new THREE.Color(0.55, 0.25, 0.22), 0.45);
+  const lipS = (k: number, a: number) => `rgba(${Math.round(lip.r * 255 * k)},${Math.round(lip.g * 255 * k)},${Math.round(lip.b * 255 * k)},${a})`;
+  g.fillStyle = lipS(0.75, 0.9);
+  g.beginPath(); g.moveTo(X(-0.22), Y(-0.46 + sm * 0.03)); g.quadraticCurveTo(X(-0.08), Y(-0.41), X(0), Y(-0.43)); g.quadraticCurveTo(X(0.08), Y(-0.41), X(0.22), Y(-0.46 + sm * 0.03)); g.quadraticCurveTo(X(0), Y(-0.47), X(-0.22), Y(-0.46 + sm * 0.03)); g.fill();
+  g.fillStyle = lipS(0.95, 0.85);
+  g.beginPath(); g.moveTo(X(-0.2), Y(-0.47 + sm * 0.03)); g.quadraticCurveTo(X(0), Y(-0.48), X(0.2), Y(-0.47 + sm * 0.03)); g.quadraticCurveTo(X(0), Y(-0.58), X(-0.2), Y(-0.47 + sm * 0.03)); g.fill();
+  blob(0.02, -0.52, 0.06, 0.015, 'rgba(255,240,230,0.3)');
+  g.strokeStyle = lipS(0.4, 0.9); g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(X(-0.22), Y(-0.46 + sm * 0.03)); g.quadraticCurveTo(X(0), Y(-0.475 - sm * 0.02), X(0.22), Y(-0.46 + sm * 0.03)); g.stroke();
+  blob(0, -0.63, 0.13, 0.04, shade(0.6, 0.5));
+  // Orejas y nacimiento del cabello
+  blob(0, 0.98, 0.7, 0.08, shade(0.5, 0.4));
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;

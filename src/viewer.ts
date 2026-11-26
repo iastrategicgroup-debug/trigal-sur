@@ -28,6 +28,8 @@ function rebuild(): void {
   avatars.length = 0;
   if (mode === 'todos') {
     const list: (HumanParams)[] = [joan, ...ARCHETYPES.map((a, i) => npcParams(a.kind as Archetype, 11 + i * 7))];
+    // Muestra del estilo de calle (franelilla + jean ancho)
+    for (let sd = 1; sd < 400 && list.length < 10; sd++) { const q = npcParams('hombre', sd); if (q.shirt.type === 'franelilla' && q.pants.type === 'jean_ancho') { list.splice(1, 0, q); break; } }
     list.forEach((p, i) => { const a = new Avatar(p); a.object.position.x = (i - (list.length - 1) / 2) * 0.95; scene.add(a.object); avatars.push(a); });
   } else {
     const a = new Avatar(joan); scene.add(a.object); avatars.push(a);
