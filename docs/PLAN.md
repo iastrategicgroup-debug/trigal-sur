@@ -53,7 +53,7 @@ trigal-sur/
 9. **Botín sin sangre**: los NPC derrotados sueltan objetos flotantes que brillan (dinero, salud, escudo). ✅ sistema hecho
 10. **Tutorial con minicuadros de diálogo**. ✅ hecho
 11. **Cerro escalable con carrera de motos cuesta abajo**: premio de $100 si llegas primero (fase 6, con las motos).
-12. **Casas en las que se entra, con NPC adentro** (familias en la sala o la cocina) (fase 5/6).
+12. **Casas en las que se entra, con NPC adentro** ✅ (interiores aparte, como en los juegos de la época).
 13. **Camiones de comida rápida** (comprar y comer), **tiendas** en las que se entra y **gimnasio** (Gimnasio Olimpus de OSM) con animaciones de levantar pesas, comer y cansarse (fase 6).
 14. **Tráfico con semáforos y policía**: los delitos (golpes, robos, atropellos) suben un nivel de búsqueda; la policía persigue y arresta (fase 6).
 

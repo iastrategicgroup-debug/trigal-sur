@@ -18,6 +18,8 @@ export interface BuildingsOut {
   backyardTrees: V2[];
   plants: V2[];
   yardPalms: V2[];
+  /** Puertas con marcador: se puede entrar (casas y comercios). facing = dirección hacia adentro. */
+  entries: { p: V2; facing: number; kind: 'casa' | 'tienda'; seed: number }[];
   lots: Lot[];
 }
 
@@ -177,7 +179,7 @@ class LotFrame {
 }
 
 export function buildLots(lots: Lot[], bankFor: (lot: Lot) => GeoBank, rnd: () => number): BuildingsOut {
-  const out: BuildingsOut = { solids: [], wires: [], tanks: [], backyardTrees: [], plants: [], yardPalms: [], lots };
+  const out: BuildingsOut = { solids: [], wires: [], tanks: [], backyardTrees: [], plants: [], yardPalms: [], entries: [], lots };
   for (const lot of lots) {
     const bank = bankFor(lot);
     if (lot.kind === 'quinta') buildQuinta(lot, bank, rnd, out);
@@ -364,6 +366,7 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
   // Piso del frente: entrada de carro de concreto y caminerito de lajas
   const yG = 0.03;
   const gc = (gA0 + gA1) / 2;
+  if (rnd() < 0.35) out.entries.push({ p: { x: f.x(doorA, front + 0.75), z: f.z(doorA, front + 0.75) }, facing: Math.atan2(-lot.n.x, -lot.n.z), kind: 'casa', seed: Math.floor(rnd() * 1e9) });
   bank.get('sidewalk').quad(f.v(gc - 1.4, yG, bFront), f.v(gc + 1.4, yG, bFront), f.v(gc + 1.4, yG, front), f.v(gc - 1.4, yG, front), [0, 0, 1.4, (front - bFront) / 2], tmpC.setScalar(0.85));
   bank.get('pavers').quad(f.v(doorA - 0.6, yG + 0.005, bFront), f.v(doorA + 0.6, yG + 0.005, bFront), f.v(doorA + 0.6, yG + 0.005, front), f.v(doorA - 0.6, yG + 0.005, front), [0, 0, 1, (front - bFront) / 1.2], tmpC.setScalar(1));
   // Plantas en el jardín (fuera de setos, porche, garaje, caminería y entrada de carro)
@@ -466,6 +469,7 @@ function buildShop(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsOut
   const FH = 3.4;
   const H = floors * FH + 0.8; // con parapeto
   const front = hd - 0.6;
+  out.entries.push({ p: { x: f.x(0, hd + 0.35), z: f.z(0, hd + 0.35) }, facing: Math.atan2(-lot.n.x, -lot.n.z), kind: 'tienda', seed: Math.floor(rnd() * 1e9) });
   const back = -hd + 1;
   f.wall(stucco, -hw, front, hw, front, 0, H, 3, dark, c);
   f.wall(stucco, hw, front, hw, back, 0, H, 3, dark, c);

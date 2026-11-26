@@ -30,6 +30,7 @@ export class CityWorld {
   readonly spawn: V2;
   readonly places: { id: string; name: string; p: V2; r: number }[] = [];
   lotsList: import('./buildings').Lot[] = [];
+  entries: import('./buildings').BuildingsOut['entries'] = [];
   readonly stats = { lots: 0, quintas: 0, comercios: 0, palms: 0, trees: 0, posts: 0 };
   private readonly doy = dayOfYear(new Date());
   private time = 0;
@@ -74,6 +75,7 @@ export class CityWorld {
       return zb;
     }, rnd);
     this.lotsList = lots;
+    this.entries = built.entries;
     built.solids.forEach((p) => this.collision.addPolygon(p));
     this.stats.lots = lots.length;
     this.stats.quintas = lots.filter((l) => l.kind === 'quinta').length;
@@ -351,6 +353,9 @@ export class CityWorld {
   }
 
   /** Iluminación según la hora: sol astronómico, colores de cielo, noche. Devuelve el factor de noche (0..1). */
+  /** Noche de terror: el cielo se cierra con la niebla (sin estrellas ni luna). */
+  horror = false;
+
   update(hours: number, focus: THREE.Vector3): number {
     const { origin } = CONFIG.map;
     const sp = solarPosition(this.doy, hours, origin.lat, origin.lon, -4);
@@ -384,7 +389,8 @@ export class CityWorld {
     fog.near = 18 + 10 * day; fog.far = 240 + 120 * day;
 
     this.time += 1 / 60;
-    this.sky.update(focus, dir, zenith, horizon, sunCol, night, this.time);
+    if (this.horror) { const fc = new THREE.Color(0.07, 0.075, 0.08); zenith.copy(fc).multiplyScalar(0.6); horizon.copy(fc); sunCol.setScalar(0); }
+    this.sky.update(focus, dir, zenith, horizon, sunCol, this.horror ? 0 : night, this.time);
     if (this.litMat) this.litMat.emissiveIntensity = 1.1 * night + 0.1 * dusk;
     if (this.shopLit) this.shopLit.emissiveIntensity = 0.9 * night;
     if (this.signMat) this.signMat.emissive.setScalar(0.35 * night);

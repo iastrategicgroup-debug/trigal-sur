@@ -168,8 +168,39 @@ export function buildClips(): Record<string, THREE.AnimationClip> {
     spine: [-0.08, 0, 0], upperArm_L: [-0.5, 0, 0.12], upperArm_R: [-0.5, 0, -0.12], foreArm_L: [-0.6, 0, 0], foreArm_R: [-0.6, 0, 0], _y: -0.46,
   }));
   c.flee = clip('flee', 1, 16, gait(0.85, 1.8, 1.0, 0.3, 0.07, 1.4));
+  // Comer: lleva la mano derecha a la boca tres veces, mastica
+  c.eat = clip('eat', 2.4, 24, (t) => {
+    const bite = Math.max(0, S(t * PI2 * 3 - 0.6));
+    return { upperArm_R: [-0.55 - bite * 0.4, 0.5, 0.25], foreArm_R: [-1.9 - bite * 0.45, 0, 0], hand_R: [0, -0.6, 0],
+      upperArm_L: [-0.35, -0.3, -0.1], foreArm_L: [-1.4, 0, 0], neck: [0.08 - bite * 0.1, 0, 0], spine: [0.03, 0, 0] };
+  }, false);
+  // Levantar pesas (curl de bíceps con mancuernas), cíclico
+  c.lift = clip('lift', 2, 16, (t) => {
+    const k = (1 - Math.cos(t * PI2)) / 2;
+    return { upperArm_L: [-0.05, 0.1, -0.08], upperArm_R: [-0.05, -0.1, 0.08], foreArm_L: [-0.15 - k * 2.1, 0, 0], foreArm_R: [-0.15 - k * 2.1, 0, 0],
+      hand_L: [0, 0.4, 0], hand_R: [0, -0.4, 0], spine: [-0.04 * k, 0, 0], neck: [0.05 * k, 0, 0], shin_L: [0.1, 0, 0], shin_R: [0.1, 0, 0], _y: -0.01 };
+  });
+  // Cansado: manos en las rodillas, respiración agitada
+  c.tired = clip('tired', 0.8, 8, (t) => {
+    const b = S(t * PI2) * 0.06;
+    return { spine: [0.55 + b, 0, 0], chest: [0.25 + b, 0, 0], neck: [-0.55, 0, 0], thigh_L: [-0.35, 0, 0.05], thigh_R: [-0.35, 0, -0.05], shin_L: [0.55, 0, 0], shin_R: [0.55, 0, 0],
+      upperArm_L: [-0.75, 0.2, -0.05], upperArm_R: [-0.75, -0.2, 0.05], foreArm_L: [-0.25, 0, 0], foreArm_R: [-0.25, 0, 0], _y: -0.12 };
+  });
+  // Escopeta: apuntar (ambas manos al arma, a la altura del hombro) y disparo (retroceso)
+  const aim: Pose = { upperArm_R: [-1.25, -0.35, 0.35], foreArm_R: [-0.9, 0, 0], hand_R: [0, 0, 0.2], upperArm_L: [-1.45, 0.55, -0.25], foreArm_L: [-0.35, 0, 0],
+    chest: [0, 0.25, 0], neck: [0, -0.25, 0], spine: [0.05, 0, 0] };
+  c.aimGun = clip('aimGun', 1, 4, () => aim);
+  c.shoot = clip('shoot', 0.45, 10, (t) => {
+    const k = Math.exp(-t * 7) * S(Math.min(1, t * 12) * Math.PI * 0.5);
+    return { ...aim, upperArm_R: [-1.25 + k * 0.35, -0.35, 0.35], upperArm_L: [-1.45 + k * 0.3, 0.55, -0.25], chest: [-k * 0.2, 0.25, 0], spine: [-k * 0.12, 0, 0] };
+  }, false);
+  // Criatura: andar rígido y desarticulado, cabeza ladeada
+  c.stalk = clip('stalk', 1.6, 16, (t) => {
+    const g2 = gait(0.35, 0.5, 0.05, 0.25, 0.03, 0.1, 0.6)(t);
+    return { ...g2, neck: [-0.2, 0.15, 0.45 + S(t * PI2 * 2) * 0.08], upperArm_L: [0.1, 0, 0.15], upperArm_R: [0.1, 0, -0.15], foreArm_L: [-0.1, 0, 0], foreArm_R: [-0.1, 0, 0] };
+  });
   return c;
 }
 
 /** Distancia recorrida por ciclo completo (dos pasos) de cada marcha, en metros, para una persona de 1,75 m. */
-export const CYCLE_LENGTH: Record<string, number> = { walk: 1.45, walkOld: 0.95, jog: 2.2, run: 3.1, flee: 3.1 };
+export const CYCLE_LENGTH: Record<string, number> = { walk: 1.45, walkOld: 0.95, jog: 2.2, run: 3.1, flee: 3.1, stalk: 1.3 };

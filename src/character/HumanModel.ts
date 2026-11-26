@@ -17,6 +17,7 @@ export interface HumanParams {
   watch: boolean;
   cap?: string | null;          // gorra (color) o null
   hunch?: number;               // encorvamiento (ancianos) 0..1
+  faceless?: boolean;           // criatura nocturna: rostro liso con cuencas vacías
 }
 
 export const BONES = [
@@ -446,14 +447,14 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         const lift = p.hair.style === 'degradado' ? Math.max(0, z) * Math.max(0, y - 0.6) * 0.35 : 0;
         y += lift;
         const P = new THREE.Vector3(hc.x + x * hrx * thick, hc.y + y * hry * (thick - 0.01) + headH * 0.02, hc.z + z * hrz * thick);
-        keep.push(y > hairline - (z < 0 ? 0.55 : 0) || z < -0.2);
+        keep.push(y > hairline || (z < 0.2 && y > -0.42)); // nuca cubierta hasta abajo
         B.vert(P, (i / cols) * 0.5, SkinBuilder.vb(4, j / rows), hairC, [['head', 1]]);
       }
     }
     const C = cols + 1;
     for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
       const a = base + j * C + i, b = a + C;
-      if (!keep[j * C + i] || !keep[(j + 1) * C + i]) continue;
+      if (!keep[j * C + i] && !keep[(j + 1) * C + i] && !keep[j * C + i + 1]) continue;
       B.tri(0, a, a + 1, b); B.tri(0, b, a + 1, b + 1);
     }
     if (p.hair.style === 'largo' || p.hair.style === 'cola') {
@@ -528,6 +529,13 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
   const skin = new THREE.Color(p.skin);
   const hex = (col: THREE.Color, k = 1) => col.clone().multiplyScalar(k).getStyle(); // getStyle devuelve sRGB
   g.fillStyle = hex(skin); g.fillRect(0, 0, S, S);
+  if (p.faceless) {
+    // Piel tirante, venas y cuencas hundidas; sin ojos ni boca
+    for (let i = 0; i < 40; i++) { g.strokeStyle = 'rgba(40,30,50,0.25)'; g.lineWidth = 1; g.beginPath(); let x = Math.random() * S, y = Math.random() * S; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (Math.random() - 0.5) * 30; y += Math.random() * 20; g.lineTo(x, y); } g.stroke(); }
+    for (const sx of [-0.34, 0.34]) { const gr = g.createRadialGradient(S * (0.5 + sx * 0.5), S * 0.45, 2, S * (0.5 + sx * 0.5), S * 0.45, 30); gr.addColorStop(0, 'rgba(5,0,5,0.95)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); }
+    g.strokeStyle = 'rgba(20,10,15,0.6)'; g.lineWidth = 2; g.beginPath(); g.moveTo(S * 0.36, S * 0.77); g.quadraticCurveTo(S * 0.5, S * 0.8, S * 0.64, S * 0.77); g.stroke();
+    const t0 = new THREE.CanvasTexture(c); t0.colorSpace = THREE.SRGBColorSpace; return t0;
+  }
   // Las coordenadas: u = 0.5 + x/2, v = 0.5 + y/2 (y hacia arriba) => en el lienzo y se invierte
   const X = (x: number) => S * (0.5 + x * 0.5), Y = (y: number) => S * (0.5 - y * 0.5);
   // Sombreado suave: mejillas y bajo la mandíbula

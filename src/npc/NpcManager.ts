@@ -39,6 +39,7 @@ interface Npc {
 }
 
 const MAX_NPC = 70;
+
 const SPAWN_MIN = 14, SPAWN_MAX = 85, DESPAWN = 120;
 
 /**
@@ -50,6 +51,8 @@ export class NpcManager {
   readonly group = new THREE.Group();
   readonly npcs: Npc[] = [];
   private nextId = 1;
+  /** Máximo de peatones (de noche, con las criaturas, la gente se mete en sus casas). */
+  max = MAX_NPC;
   private spawnTimer = 0;
   private walkPaths: { road: Road; side: number; pts: V2[] }[] = [];
   private rnd: () => number;
@@ -140,12 +143,12 @@ export class NpcManager {
   update(dt: number, player: PlayerCtx): void {
     this.spawnTimer -= dt;
     const alive = this.npcs.filter((n) => n.state !== 'muerto').length;
-    if (this.spawnTimer <= 0 && alive < MAX_NPC) { this.spawn(player.pos); this.spawn(player.pos); this.spawnTimer = 0.1; }
+    if (this.spawnTimer <= 0 && alive < this.max) { this.spawn(player.pos); this.spawn(player.pos); this.spawnTimer = 0.1; }
 
     for (const n of [...this.npcs]) {
       const toP = new THREE.Vector3().subVectors(player.pos, n.pos);
       const dP = Math.hypot(toP.x, toP.z);
-      if (dP > DESPAWN || (n.state === 'muerto' && (n.deadTime += dt) > 30)) { this.remove(n); continue; }
+      if (dP > DESPAWN || (n.state === 'muerto' && (n.deadTime += dt) > 30) || (alive > this.max + 5 && dP > 40 && n.state === 'caminar')) { this.remove(n); continue; }
       n.attackCd -= dt;
       let vx = 0, vz = 0, anim = 'idle', animSpeed = 0;
       const old = n.kind === 'anciano' || n.kind === 'anciana';

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
-export type PickupKind = 'dinero' | 'salud' | 'escudo';
+export type PickupKind = 'dinero' | 'salud' | 'escudo' | 'municion';
 interface Pickup { kind: PickupKind; amount: number; x: number; y: number; z: number; t: number; ttl: number; mesh: THREE.Object3D }
 
-const COLORS: Record<PickupKind, number> = { dinero: 0x4ad060, salud: 0xff4a4a, escudo: 0x4aa8ff };
+const COLORS: Record<PickupKind, number> = { dinero: 0x4ad060, salud: 0xff4a4a, escudo: 0x4aa8ff, municion: 0xffb020 };
 
 /**
  * Objetos que flotan, giran y brillan; se recogen al pasar cerca.
@@ -21,14 +21,16 @@ export class Pickups {
     const money = new THREE.BoxGeometry(0.42, 0.12, 0.22);
     const kit = new THREE.BoxGeometry(0.4, 0.3, 0.18);
     const shield = new THREE.CylinderGeometry(0.25, 0.25, 0.08, 6).rotateX(Math.PI / 2);
-    this.geos = { dinero: money, salud: kit, escudo: shield };
+    this.geos = { dinero: money, salud: kit, escudo: shield, municion: new THREE.BoxGeometry(0.3, 0.18, 0.2) };
     this.mats = {
+      municion: new THREE.MeshLambertMaterial({ color: 0xc83020, emissive: 0x301000 }),
       dinero: new THREE.MeshLambertMaterial({ map: billTex(), emissive: 0x103010 }),
       salud: new THREE.MeshLambertMaterial({ map: kitTex(), emissive: 0x301010 }),
       escudo: new THREE.MeshLambertMaterial({ color: 0x3a8ae0, emissive: 0x0a2a5a }),
     };
     const glow = glowTex();
     this.glowMat = {
+      municion: new THREE.SpriteMaterial({ map: glow, color: COLORS.municion, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
       dinero: new THREE.SpriteMaterial({ map: glow, color: COLORS.dinero, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
       salud: new THREE.SpriteMaterial({ map: glow, color: COLORS.salud, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
       escudo: new THREE.SpriteMaterial({ map: glow, color: COLORS.escudo, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),

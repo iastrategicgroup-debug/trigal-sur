@@ -12,7 +12,8 @@ const CONTROLS: [string, string][] = [
   ['Clic izq. / Q', 'Golpear'],
   ['E', 'Saludar / sentarse en un banco'],
   ['Clic der.', 'Apuntar (mantener)'],
-  ['F', 'Subir o bajar de un vehículo'],
+  ['F', 'Subir o bajar de un vehículo (próximamente)'],
+  ['1 · 2 · 3', 'Comprar en abastos y camiones de comida'],
   ['M', 'Mapa'],
   ['Esc', 'Pausa'],
   ['F3', 'Depuración'],
@@ -51,6 +52,8 @@ export class UI {
   private placesEl: HTMLDivElement;
   private moneyEl: HTMLDivElement;
   private hurtEl: HTMLDivElement;
+  private ammoEl: HTMLDivElement;
+  private menuEl: HTMLDivElement;
   private crossEl: HTMLDivElement;
   private lastStreet = '';
   private streetTimer = 0;
@@ -106,12 +109,14 @@ export class UI {
     const tr = el('div', 'hud-tr');
     this.clockEl = el('div', 'clock', '17:30');
     this.moneyEl = el('div', 'money', '$0');
+    this.ammoEl = el('div', 'ammo');
+    this.menuEl = el('div', 'shopmenu');
     const bars = el('div', 'bars');
     const mk = (cls: string, title: string) => { const b = el('div', `bar ${cls}`); b.title = title; const f = el('div'); b.append(f); bars.append(b); return f; };
     this.healthEl = mk('health', 'Salud');
     this.shieldEl = mk('shield', 'Escudo');
     this.staminaEl = mk('stamina', 'Resistencia');
-    tr.append(this.clockEl, bars, this.moneyEl);
+    tr.append(this.clockEl, bars, this.moneyEl, this.ammoEl);
     this.minimap = el('div', 'minimap');
     this.hintEl = el('div', 'hint');
     this.streetEl = el('div', 'street');
@@ -119,7 +124,7 @@ export class UI {
     this.crossEl = el('div', 'cross');
     this.toastEl = el('div', 'toast');
     this.placesEl = el('div', 'places');
-    this.hud.append(this.hurtEl, this.crossEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
+    this.hud.append(this.menuEl, this.hurtEl, this.crossEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
     this.deathEl = el('div', 'death', '<div>HAS CAÍDO</div>');
 
     this.debug = el('div', 'debug');
@@ -212,6 +217,12 @@ export class UI {
   setPlaces(found: number, total: number): void { this.placesEl.textContent = `Lugares ${found}/${total}`; }
   /** Destello rojo en los bordes al recibir daño. */
   hurt(): void { this.hurtEl.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => this.hurtEl.classList.remove('on'))); }
+  setAmmo(n: number | null): void { this.ammoEl.textContent = n === null ? '' : `Escopeta · ${n}`; }
+  showMenu(title: string, lines: string[], money: number): void {
+    this.menuEl.innerHTML = `<div class="dialog-title">${title}</div>${lines.map((l) => `<div class="mi">${l}</div>`).join('')}<div class="dialog-step">Tienes $${money} · <kbd>E</kbd> cerrar</div>`;
+    this.menuEl.classList.add('on');
+  }
+  hideMenu(): void { this.menuEl.classList.remove('on'); }
   setAim(on: boolean): void { this.crossEl.classList.toggle('on', on); }
   setDead(on: boolean): void { this.deathEl.classList.toggle('on', on); }
 }

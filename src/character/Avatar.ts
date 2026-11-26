@@ -25,7 +25,7 @@ export class Avatar {
     this.mixer = new THREE.AnimationMixer(this.mesh);
     for (const [name, c] of Object.entries(CLIPS)) {
       const a = this.mixer.clipAction(c);
-      if (['jump', 'land', 'punchR', 'punchL', 'hookR', 'hit', 'death', 'wave'].includes(name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+      if (['jump', 'land', 'punchR', 'punchL', 'hookR', 'hit', 'death', 'wave', 'eat', 'shoot'].includes(name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
       this.actions.set(name, a);
     }
     this.play('idle');

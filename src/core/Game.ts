@@ -16,6 +16,9 @@ import { Avatar } from '../character/Avatar';
 import { joanParams } from '../character/archetypes';
 import { NpcManager } from '../npc/NpcManager';
 import { PostFX } from './PostFX';
+import { Places, type Action, type MenuItem } from '../world/Places';
+import { Monsters } from '../npc/Monsters';
+import { Sfx } from '../audio/Sfx';
 
 export type FlowState = 'loading' | 'menu' | 'playing' | 'paused';
 
@@ -62,7 +65,25 @@ export class Game {
   private night = 0;
   private npcs!: NpcManager;
   /** Estado de acción del jugador (la locomoción se decide por velocidad). */
-  private action: 'ninguna' | 'golpe' | 'saludar' | 'sentado' = 'ninguna';
+  private action: 'ninguna' | 'golpe' | 'saludar' | 'sentado' | 'comer' | 'pesas' | 'trotadora' | 'cansado' | 'disparo' = 'ninguna';
+  private places!: Places;
+  private monsters!: Monsters;
+  private readonly sfx = new Sfx();
+  private outside: { x: number; z: number; facing: number } | null = null;
+  private menu: { title: string; items: MenuItem[] } | null = null;
+  private pendingFood: MenuItem | null = null;
+  private repT = 0;
+  private strength = 0;
+  private endurance = 0;
+  private hasShotgun = false;
+  private ammo = 0;
+  private shotgunSpot: THREE.Vector3 | null = null;
+  private shotgunPickup!: THREE.Group;
+  private gunModel!: THREE.Group;
+  private gunCd = 0;
+  private flash!: THREE.Sprite;
+  private flashT = 0;
+  private horror = false;
   private actionT = 0;
   private combo = 0;
   private punchCd = 0;
@@ -74,6 +95,8 @@ export class Game {
   constructor(private readonly canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.save = loadSave();
     this.money = (this.save as SaveData & { money?: number }).money ?? 0;
+    const ex = this.save as SaveData & { strength?: number; endurance?: number; shotgun?: boolean; ammo?: number };
+    this.strength = ex.strength ?? 0; this.endurance = ex.endurance ?? 0; this.hasShotgun = ex.shotgun ?? false; this.ammo = ex.ammo ?? 0;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.info.autoReset = false; // con postproceso hay varias pasadas: se reinicia una vez por cuadro
@@ -129,6 +152,8 @@ export class Game {
         this.scene.add(this.player.object, this.pickups.group);
         this.restorePosition(); this.seedPickups();
       }],
+      ['Abriendo casas, abastos y el gimnasio', () => { this.places = new Places(this.world); this.scene.add(this.places.group); }],
+      ['Algo despierta en la noche', () => { this.monsters = new Monsters(this.world, this.pickups); this.scene.add(this.monsters.group); this.monsters.onGroan = (d) => this.sfx.groan(d); this.setupShotgun(); }],
       ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, 55); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
     ];
@@ -174,6 +199,7 @@ export class Game {
     this.ui.show('none');
     this.ui.setHudVisible(true);
     this.cam.startIntro();
+    this.sfx.unlock();
     this.input.requestLock();
   }
   private pause(): void {
@@ -218,6 +244,8 @@ export class Game {
   private persist(): void {
     this.save.position = { x: this.player.pos.x, z: this.player.pos.z, yaw: this.player.facing };
     (this.save as SaveData & { money?: number }).money = this.money;
+    Object.assign(this.save, { strength: this.strength, endurance: this.endurance, shotgun: this.hasShotgun, ammo: this.ammo });
+    if (this.outside) this.save.position = { x: this.outside.x, z: this.outside.z, yaw: this.outside.facing };
     writeSave(this.save);
   }
 
@@ -274,7 +302,11 @@ export class Game {
     this.cam.aim = aiming;
     // Golpes (clic izquierdo o Q): combo de 3, el tercero más fuerte
     this.punchCd -= dt;
-    if ((this.input.wasPressed('Mouse0') || this.input.wasPressed('KeyQ')) && this.punchCd <= 0 && this.grounded) {
+    this.gunCd -= dt;
+    const attack = this.input.wasPressed('Mouse0') || this.input.wasPressed('KeyQ');
+    if (attack && this.menu) { /* menú abierto: no ataca */ }
+    else if (attack && aiming && this.hasShotgun) this.fireShotgun();
+    else if (attack && this.punchCd <= 0 && this.grounded && !['pesas', 'trotadora', 'comer'].includes(this.action)) {
       if (aiming) this.player.facing = this.cam.yaw + Math.PI;
       this.combo = (this.combo + 1) % 3;
       this.action = 'golpe'; this.actionT = this.combo === 2 ? 0.5 : 0.4; this.punchCd = this.combo === 2 ? 0.5 : 0.36;
@@ -282,11 +314,20 @@ export class Game {
       this.pendingHit = this.combo === 2 ? 0.17 : 0.13; // conecta en el impacto // el golpe conecta cuando el brazo se extiende
     }
     if (this.pendingHit >= 0 && (this.pendingHit -= dt) < 0) {
-      const dmg = this.combo === 2 ? 34 : 20;
+      const dmg = (this.combo === 2 ? 34 : 20) * Math.min(1.6, 1 + this.strength * 0.01); // el gimnasio da fuerza
       this.npcs.punch(this.player.pos, this.player.facing, dmg);
     }
-    // E: saludar al peatón cercano o sentarse en un banco
-    if (this.input.wasPressed('KeyE') && this.action !== 'golpe') {
+    // Menú de compra abierto: 1-3 para comprar, E para cerrar
+    const place = this.places.nearestAction(this.player.pos);
+    if (this.menu) {
+      const items = this.menu.items;
+      const k = items.findIndex((_, i) => this.input.wasPressed(`Digit${i + 1}`) || this.input.wasPressed(`Numpad${i + 1}`));
+      if (k >= 0) this.buy(items[k]!);
+      else if (this.input.wasPressed('KeyE') || moving) { this.menu = null; this.ui.hideMenu(); }
+    }
+    // E: entrar/salir, comprar, gimnasio; si no, saludar o sentarse
+    else if (this.input.wasPressed('KeyE') && place && !['golpe', 'comer'].includes(this.action)) this.doPlace(place);
+    else if (this.input.wasPressed('KeyE') && this.action !== 'golpe') {
       const bench = this.world.benches.find((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4);
       const npc = this.npcs.nearest(this.player.pos, 3.5);
       if (this.action === 'sentado') this.action = 'ninguna';
@@ -299,22 +340,24 @@ export class Game {
         this.player.facing = bench.ry + Math.PI; this.action = 'sentado';
       }
     }
-    if (this.action === 'golpe' || this.action === 'saludar') { if ((this.actionT -= dt) <= 0) this.action = 'ninguna'; }
-    if (moving && (this.action === 'saludar' || this.action === 'sentado')) this.action = 'ninguna'; // cualquier movimiento cancela
+    if (['golpe', 'saludar', 'disparo', 'cansado'].includes(this.action)) { if ((this.actionT -= dt) <= 0) this.action = 'ninguna'; }
+    if (this.action === 'comer' && (this.actionT -= dt) <= 0) this.finishEating();
+    if (moving && ['saludar', 'sentado', 'pesas', 'trotadora'].includes(this.action)) this.action = 'ninguna'; // cualquier movimiento cancela
+    this.gymStep(dt);
     if (this.debugOn && this.input.wasPressed('KeyK')) this.hurt(25, 'golpe');           // prueba de daño (solo en F3)
     if (this.debugOn && this.input.wasPressed('KeyL')) this.pickups.drop(this.player.pos.x + 2, this.player.pos.y, this.player.pos.z); // prueba de botín
 
     // 2. Resistencia
     const st = CONFIG.stamina;
     const running = wantRun && !this.exhausted && this.stamina > 0;
-    if (running) { this.stamina = Math.max(0, this.stamina - st.drain * dt); this.sinceRun = 0; if (this.stamina === 0) this.exhausted = true; }
-    else { this.sinceRun += dt; if (this.sinceRun > st.regenDelay) this.stamina = Math.min(st.max, this.stamina + st.regen * dt); }
+    if (running) { this.stamina = Math.max(0, this.stamina - (st.drain / (1 + this.endurance * 0.01)) * dt); this.sinceRun = 0; if (this.stamina === 0) this.exhausted = true; }
+    else if (this.action !== 'pesas' && this.action !== 'trotadora') { this.sinceRun += dt; if (this.sinceRun > st.regenDelay) this.stamina = Math.min(st.max, this.stamina + st.regen * dt); }
     if (this.exhausted && this.stamina >= st.minToRun) this.exhausted = false;
 
     // 3. Movimiento horizontal + colisiones (subpasos)
     const s = CONFIG.player.speeds;
     const before = this.player.pos.clone();
-    const lockMove = this.action === 'sentado' || this.action === 'golpe';
+    const lockMove = ['sentado', 'golpe', 'comer', 'pesas', 'trotadora', 'cansado'].includes(this.action) || !!this.menu;
     const spd = aiming ? s.walk * 1.4 : running ? s.run : walking ? s.walk : s.jog;
     this.player.step(dt, lockMove ? { x: 0, y: 0 } : axes, this.cam.yaw, spd);
     if (aiming) { this.player.facing = this.cam.yaw + Math.PI; }
@@ -353,12 +396,13 @@ export class Game {
 
     // 5. Objetos flotantes
     const got = this.pickups.update(dt, this.player.pos.x, this.player.pos.y, this.player.pos.z,
-      (k) => k === 'dinero' || (k === 'salud' && this.vitals.health < 100) || (k === 'escudo' && this.vitals.shield < 100));
+      (k) => k === 'dinero' || (k === 'municion' && this.hasShotgun) || (k === 'salud' && this.vitals.health < 100) || (k === 'escudo' && this.vitals.shield < 100));
     if (got.length) this.tut.picked = true;
     for (const g of got) {
       if (g.kind === 'dinero') { this.money += g.amount; this.ui.toast(`<b>+$${g.amount}</b>`, 1.5); }
       if (g.kind === 'salud') { this.vitals.health = Math.min(100, this.vitals.health + g.amount); this.ui.toast('<b>+Salud</b>', 1.5); }
       if (g.kind === 'escudo') { this.vitals.addShield(g.amount); this.ui.toast('<b>+Escudo</b>', 1.5); }
+      if (g.kind === 'municion') { this.ammo += g.amount; this.ui.toast(`<b>+${g.amount} cartuchos</b>`, 1.5); }
     }
 
     // 6. Lugares por descubrir
@@ -376,12 +420,26 @@ export class Game {
       writeSave(this.save);
     }
     this.hint = '';
-    if (this.action !== 'sentado') {
+    this.shotgunStep(dt);
+    if (this.menu) this.hint = '';
+    else if (place && !['pesas', 'trotadora'].includes(this.action)) this.hint = place.label;
+    else if (this.action === 'pesas' || this.action === 'trotadora') this.hint = 'Muévete para terminar';
+    else if (this.action !== 'sentado') {
       if (this.npcs.nearest(this.player.pos, 3.5)) this.hint = 'E: Saludar';
       else if (this.world.benches.some((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4)) this.hint = 'E: Sentarse';
     } else this.hint = 'E o moverse: Levantarse';
     // NPC y tráfico (después de las colisiones del jugador)
-    this.npcs.update(dt, {
+    // Noche de terror: de 20:00 a 5:00 salen criaturas
+    const nightNow = this.hours >= 20 || this.hours < 5;
+    const horror = nightNow && !this.outside;
+    if (nightNow !== this.horror) {
+      this.horror = nightNow;
+      if (nightNow) this.ui.toast(this.hasShotgun ? '<b>Cae la noche…</b>Algo se mueve en la niebla' : '<b>Cae la noche…</b>Algo se mueve en la niebla. Busca la escopeta (marcada en el mapa)', 6);
+      else this.ui.toast('<b>Amanece</b>Las criaturas se deshacen con la luz', 4);
+    }
+    this.npcs.max = nightNow ? 12 : 70;
+    this.monsters.update(dt, horror, { pos: this.player.pos, dead: this.vitals.dead, hurt: (a) => this.hurt(a, 'golpe') });
+    if (!this.outside) this.npcs.update(dt, {
       pos: this.player.pos, dead: this.vitals.dead, money: this.money,
       hurt: (a, src) => this.hurt(a, src),
       rob: (a) => { this.money = Math.max(0, this.money - a); },
@@ -404,11 +462,21 @@ export class Game {
     this.ui.setAim(this.cam.aim && playing);
     this.cam.update(frameDt, this.player.object.position, speed > CONFIG.player.speeds.jog + 0.5, speed > 0.3, this.player.facing);
     this.hours = (CONFIG.day.startHour + (this.gameTime / CONFIG.day.realSecondsPerDay) * 24) % 24;
+    this.world.horror = this.horror && !this.outside;
     this.night = this.world.update(this.hours, this.player.pos);
+    if (this.horror && !this.outside) {
+      // Niebla espesa y fría, casi sin visibilidad
+      const fog = this.scene.fog as THREE.Fog;
+      fog.color.setRGB(0.07, 0.075, 0.08); fog.near = 4; fog.far = 58;
+    }
+    this.places.update(frameDt, this.gameTime);
+    this.flashT -= frameDt; this.flash.visible = this.flashT > 0;
     if (playing) {
       this.ui.updateHud({ hours: this.hours, health: this.vitals.health, shield: this.vitals.shield, stamina: this.stamina, hint: this.hint, money: this.money });
+      this.ui.setAmmo(this.hasShotgun ? this.ammo : null);
+      this.ui.minimap.style.visibility = this.outside ? 'hidden' : 'visible';
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
-      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions()]);
+      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...(this.horror && !this.hasShotgun && this.shotgunSpot ? [{ x: this.shotgunSpot.x, z: this.shotgunSpot.z, color: '#ff8020' }] : [])]);
       this.saveTimer += frameDt;
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }
@@ -425,14 +493,17 @@ export class Game {
     const j = this.joan;
     if (this.vitals.dead) { j.update(dt); return; }
     this.landT -= dt;
-    const oneShot = (this.action === 'golpe' || this.action === 'saludar' || this.landT > 0) && !j.finished;
+    const oneShot = (['golpe', 'saludar', 'comer', 'disparo'].includes(this.action) || this.landT > 0) && !j.finished;
     if (!oneShot) {
       if (this.action === 'sentado') j.play('sit', 0.25);
+      else if (this.action === 'pesas') j.play('lift', 0.3);
+      else if (this.action === 'trotadora') { j.play('jog', 0.3); j.setGaitSpeed(2.8); }
+      else if (this.action === 'cansado' || (this.exhausted && speed < 0.25 && this.grounded)) j.play('tired', 0.3);
       else if (!this.grounded) j.play(this.vy > 0 ? 'jump' : 'fall', 0.15);
       else if (speed > 4.6) { j.play('run'); j.setGaitSpeed(speed); }
       else if (speed > 2.2) { j.play('jog'); j.setGaitSpeed(speed); }
       else if (speed > 0.25) { j.play('walk'); j.setGaitSpeed(speed); }
-      else if (this.cam.aim) j.play('guard', 0.15);
+      else if (this.cam.aim) j.play(this.hasShotgun ? 'aimGun' : 'guard', 0.15);
       else {
         // Reposo; tras 8 s sin entrada, mira alrededor / revisa el reloj
         this.idleT += dt;
@@ -442,6 +513,131 @@ export class Game {
       if (speed > 0.25 || !this.grounded) this.idleT = 0;
     }
     j.update(dt);
+  }
+
+  // ---------- Lugares ----------
+  private doPlace(a: Action): void {
+    if (a.type === 'entrar') {
+      this.outside = { x: a.back.x, z: a.back.z, facing: this.player.facing + Math.PI };
+      const r = this.places.enter(a.kind, a.seed);
+      this.teleport(r.spawn.x, r.spawn.z, r.facing);
+      this.ui.toast(r.greeting, 4);
+    } else if (a.type === 'salir' && this.outside) {
+      this.places.exit();
+      const o = this.outside; this.outside = null;
+      this.teleport(o.x, o.z, o.facing);
+      this.npcs.populate(this.player.pos, 40);
+    } else if (a.type === 'comprar') {
+      this.menu = { title: a.title, items: a.items };
+      this.ui.showMenu(a.title, a.items.map((i, k) => `<kbd>${k + 1}</kbd> ${i.name} <span>$${i.price}</span>`), this.money);
+    } else if (a.type === 'pesas' || a.type === 'trotadora') {
+      if (this.stamina < 20) { this.ui.toast('<b>Joan está agotado</b>Descansa un momento', 2.5); return; }
+      this.player.pos.x = a.p.x; this.player.pos.z = a.p.z; this.player.prevPos.copy(this.player.pos);
+      this.player.facing = a.facing; this.player.vel.set(0, 0, 0);
+      this.action = a.type; this.repT = 0;
+    }
+  }
+
+  private teleport(x: number, z: number, facing: number): void {
+    this.player.pos.set(x, this.world.heightAt(x, z), z); this.player.prevPos.copy(this.player.pos);
+    this.player.vel.set(0, 0, 0); this.player.facing = this.player.prevFacing = facing;
+    this.cam.yaw = facing + Math.PI;
+  }
+
+  private buy(item: MenuItem): void {
+    if (this.money < item.price) { this.ui.toast(`<b>No te alcanza</b>${item.name} cuesta $${item.price}`, 2); return; }
+    this.money -= item.price;
+    this.menu = null; this.ui.hideMenu();
+    this.pendingFood = item;
+    this.action = 'comer'; this.actionT = 2.4;
+    this.joan.play('eat', 0.2, true);
+    this.sfx.bite();
+  }
+
+  private finishEating(): void {
+    const f = this.pendingFood; this.pendingFood = null; this.action = 'ninguna';
+    if (!f) return;
+    this.vitals.health = Math.min(100, this.vitals.health + f.heal);
+    this.stamina = Math.min(CONFIG.stamina.max, this.stamina + f.stamina);
+    this.ui.toast(`<b>${f.name}</b>+${f.heal} salud · +${f.stamina} energía`, 2.5);
+  }
+
+  /** Gimnasio: cada repetición cansa y da fuerza; la trotadora da resistencia. Al agotarse, Joan descansa. */
+  private gymStep(dt: number): void {
+    if (this.action === 'pesas') {
+      this.repT += dt;
+      this.stamina = Math.max(0, this.stamina - 7 * dt);
+      if (this.repT >= 2) { this.repT = 0; this.strength += 1; this.ui.toast(`<b>+1 Fuerza</b>Fuerza ${this.strength}`, 1.4); }
+    } else if (this.action === 'trotadora') {
+      this.stamina = Math.max(0, this.stamina - 6 * dt);
+      this.endurance += dt * 0.5;
+      this.repT += dt;
+      if (this.repT >= 4) { this.repT = 0; this.ui.toast(`<b>Resistencia ${Math.floor(this.endurance)}</b>`, 1.4); }
+    } else return;
+    if (this.stamina < 8) {
+      this.action = 'cansado'; this.actionT = 3.5; this.exhausted = true;
+      this.ui.toast('<b>Joan está agotado</b>Recupera el aliento', 3);
+    }
+  }
+
+  // ---------- Escopeta ----------
+  private setupShotgun(): void {
+    const gun = () => {
+      const g = new THREE.Group();
+      const metal = new THREE.MeshLambertMaterial({ color: 0x1e1e20 }), wood = new THREE.MeshLambertMaterial({ color: 0x5a3418 });
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.62, 8), metal); barrel.position.y = -0.31;
+      const barrel2 = barrel.clone(); barrel2.position.x = 0.036;
+      const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.18, 8), wood); pump.position.set(0.018, -0.36, 0.025);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.07), metal); body.position.set(0.018, 0.05, 0);
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.32, 0.09), wood); stock.position.set(0.018, 0.26, -0.02); stock.rotation.x = 0.2;
+      g.add(barrel, barrel2, pump, body, stock);
+      return g;
+    };
+    // Escondida en un terreno baldío
+    const lot = this.world.lotsList.find((l) => l.kind === 'baldio' && Math.abs(l.c.x) < 400) ?? this.world.lotsList.find((l) => l.kind === 'baldio');
+    const spot = lot ? { x: lot.c.x, z: lot.c.z } : { x: this.world.spawn.x + 20, z: this.world.spawn.z };
+    this.shotgunSpot = new THREE.Vector3(spot.x, this.world.heightAt(spot.x, spot.z), spot.z);
+    this.shotgunPickup = gun();
+    this.shotgunPickup.rotation.z = Math.PI / 2;
+    this.shotgunPickup.position.copy(this.shotgunSpot).add(new THREE.Vector3(0, 0.9, 0));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff8020, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.setScalar(1.6); this.shotgunPickup.add(glow);
+    this.scene.add(this.shotgunPickup);
+    this.shotgunPickup.visible = !this.hasShotgun;
+    // En la mano de Joan
+    this.gunModel = gun();
+    this.gunModel.rotation.set(0, 0, 0);
+    this.gunModel.position.set(0, -0.06, 0.02);
+    this.joan.bones.hand_R.add(this.gunModel);
+    this.gunModel.visible = this.hasShotgun;
+    this.flash = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffd080, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.flash.scale.setScalar(0.7); this.flash.position.set(0.018, -0.7, 0); this.flash.visible = false;
+    this.gunModel.add(this.flash);
+  }
+
+  private shotgunStep(dt: number): void {
+    if (this.hasShotgun || !this.shotgunSpot) return;
+    this.shotgunPickup.rotation.y += dt * 1.5;
+    this.shotgunPickup.position.y = this.shotgunSpot.y + 0.9 + Math.sin(this.gameTime * 2.5) * 0.12;
+    if (Math.hypot(this.player.pos.x - this.shotgunSpot.x, this.player.pos.z - this.shotgunSpot.z) < 1.3) {
+      this.hasShotgun = true; this.ammo += 12;
+      this.shotgunPickup.visible = false; this.gunModel.visible = true;
+      this.ui.toast('<b>¡Escopeta!</b>Mantén clic derecho para apuntar y clic izquierdo para disparar', 5);
+      this.persist();
+    }
+  }
+
+  private fireShotgun(): void {
+    if (this.gunCd > 0) return;
+    if (this.ammo <= 0) { this.ui.toast('<b>Sin munición</b>Las criaturas sueltan cartuchos', 2); this.gunCd = 0.5; return; }
+    this.ammo--; this.gunCd = 0.95;
+    this.action = 'disparo'; this.actionT = 0.45;
+    this.joan.play('shoot', 0.04, true);
+    this.sfx.shotgun();
+    this.flashT = 0.06;
+    const dir = new THREE.Vector3(); this.camera.getWorldDirection(dir);
+    this.monsters.shoot(this.camera.position.clone(), dir, this.player.pos);
+    this.cam.pitch = Math.min(this.cam.pitch + 0.035, 1.0); // retroceso
   }
 
   private updateDebug(frameDt: number, speed: number): void {
@@ -470,6 +666,7 @@ export class Game {
       stats: this.world.stats, pickups: this.pickups.count, npcs: this.npcs.count, places: this.world.places.map((p) => p.name),
     };
   }
+  get debugExtra() { return { inside: this.places.insideKind, monsters: this.monsters.count, ammo: this.ammo, shotgun: this.hasShotgun, strength: this.strength, action: this.action, menu: !!this.menu }; }
   debugSetHour(h: number): void { this.gameTime = ((h - CONFIG.day.startHour + 24) % 24) / 24 * CONFIG.day.realSecondsPerDay; }
   debugTeleport(x: number, z: number, yaw: number, pitchDeg = 15, dist = 1): void {
     this.player.pos.set(x, this.world.heightAt(x, z), z); this.player.prevPos.copy(this.player.pos);

@@ -594,3 +594,25 @@ export function dirt(): THREE.CanvasTexture {
     for (let i = 0; i < 600; i++) { const x = r() * s, y = r() * s; if (r() < 0.7) continue; g.strokeStyle = `rgba(${70 + r() * 40},${100 + r() * 40},40,0.8)`; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 4, y - 4 - r() * 5); g.stroke(); }
   });
 }
+
+/** Piso de cerámica beige con juntas. 1 rep = 2 m (4 baldosas de 50 cm). */
+export function floorTiles(): THREE.CanvasTexture {
+  return make('tiles', 256, (g, s, r) => {
+    g.fillStyle = '#d8cdb4'; g.fillRect(0, 0, s, s);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const v = 0.93 + r() * 0.1; g.fillStyle = `rgba(${230 * v},${218 * v},${190 * v},1)`; g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
+      g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x * 64 + 4, y * 64 + 4, 30, 6);
+    }
+    blotches(g, s, r, 12, 'rgba(120,100,70,A)', 30, 0.12);
+    grain(g, s, r, 12);
+  });
+}
+
+/** Goma negra de gimnasio. */
+export function rubber(): THREE.CanvasTexture {
+  return make('rubber', 128, (g, s, r) => {
+    g.fillStyle = '#2a2a2c'; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 1500; i++) { const v = 30 + r() * 40; g.fillStyle = `rgb(${v},${v},${v + 4})`; g.fillRect(r() * s, r() * s, 2, 2); }
+    g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, s, 2); g.fillRect(0, 0, 2, s);
+  });
+}
