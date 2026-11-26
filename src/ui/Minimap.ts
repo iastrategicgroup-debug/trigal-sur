@@ -23,8 +23,7 @@ export class Minimap {
       g.fillStyle = a.kind === 'building' ? '#8a7f74' : '#4f8a3c';
       g.beginPath(); a.poly.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.closePath(); g.fill();
     }
-    g.fillStyle = '#9a8f80';
-    for (const l of lots) { const c = rectCorners(l.c, l.u, l.n, l.hw, l.hd); g.beginPath(); c.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.closePath(); g.fill(); }
+    for (const l of lots) { g.fillStyle = l.kind === 'baldio' ? '#8a7a5a' : '#9a8f80'; const c = rectCorners(l.c, l.u, l.n, l.hw, l.hd); g.beginPath(); c.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.closePath(); g.fill(); }
     g.lineCap = 'round'; g.lineJoin = 'round';
     for (const pass of [0, 1]) for (const r of [...map.roads].sort((a, b) => a.width - b.width)) {
       g.strokeStyle = pass ? (r.kind === 'motorway' || r.kind === 'motorway_link' ? '#e0b040' : '#2c2c2c') : '#d8d0c0';

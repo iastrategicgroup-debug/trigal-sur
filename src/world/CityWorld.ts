@@ -32,6 +32,7 @@ export class CityWorld {
   lotsList: import('./buildings').Lot[] = [];
   readonly stats = { lots: 0, quintas: 0, comercios: 0, palms: 0, trees: 0, posts: 0 };
   private readonly doy = dayOfYear(new Date());
+  private time = 0;
 
   constructor(readonly map: CityMap, readonly scene: THREE.Scene, shadows: boolean) {
     const rnd = rng(20261126);
@@ -46,6 +47,7 @@ export class CityWorld {
     sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 1; sc.far = 400;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.radius = 3; // penumbra (PCFSoft)
     scene.add(this.sun, this.sun.target, this.hemi);
 
     // Suelo (tierra y grama)
@@ -68,7 +70,7 @@ export class CityWorld {
     built.solids.forEach((p) => this.collision.addPolygon(p));
     this.stats.lots = lots.length;
     this.stats.quintas = lots.filter((l) => l.kind === 'quinta').length;
-    this.stats.comercios = lots.length - this.stats.quintas;
+    this.stats.comercios = lots.filter((l) => l.kind === 'comercio').length;
 
     this.root.add(...this.meshesFromBank(bank));
 
@@ -80,6 +82,7 @@ export class CityWorld {
     // Utilería
     const props = this.collectProps(rnd, built.backyardTrees, built.tanks);
     props.plants = built.plants;
+    props.palms.push(...built.yardPalms);
     const out = buildProps(props, rnd);
     this.root.add(out.group);
     this.lampMat = out.lampMat;
@@ -126,6 +129,7 @@ export class CityWorld {
       case 'sheet': return L({ map: T.sheetMetal(), side: THREE.DoubleSide });
       case 'fence': return L({ map: T.ironFence(), alphaTest: 0.5, side: THREE.DoubleSide });
       case 'pavers': return L({ map: T.pavers(), side: THREE.DoubleSide });
+      case 'dirt': return L({ map: T.dirt(), side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -0.5 });
       case 'hedge': return L({ map: T.leafMass(), color: 0x9ac070 });
       case 'window': return L({ map: windowAtlas(), side: THREE.DoubleSide });
       case 'windowLit':
@@ -141,12 +145,12 @@ export class CityWorld {
   }
 
   private meshesFromBank(bank: GeoBank): THREE.Mesh[] {
-    const order: Record<string, number> = { park: 0.5, asphalt: 1, marks: 2 };
+    const order: Record<string, number> = { park: 0.5, dirt: 0.5, asphalt: 1, marks: 2 };
     return bank.entries().map(([key, b]) => {
       const m = new THREE.Mesh(b.build(), this.material(key));
       m.name = key;
       m.renderOrder = order[key] ?? 3;
-      const flat = key === 'asphalt' || key === 'marks' || key === 'sidewalk' || key === 'park' || key === 'pavers' || key === 'verge' || key === 'curbTop';
+      const flat = key === 'asphalt' || key === 'marks' || key === 'sidewalk' || key === 'park' || key === 'pavers' || key === 'verge' || key === 'curbTop' || key === 'dirt';
       m.receiveShadow = true;
       m.castShadow = !flat;
       return m;
@@ -322,8 +326,8 @@ export class CityWorld {
     const dusk = 1 - THREE.MathUtils.smoothstep(Math.abs(elevDeg - 2), 0, 14);
     const night = 1 - THREE.MathUtils.smoothstep(elevDeg, -10, 0);
 
-    const zDay = new THREE.Color(0x3d7fd0), zDusk = new THREE.Color(0x4a5a9a), zNight = new THREE.Color(0x0a1226);
-    const hDay = new THREE.Color(0xbcd8ee), hDusk = new THREE.Color(0xff9a50), hNight = new THREE.Color(0x24304a);
+    const zDay = new THREE.Color(0x7fa8c8), zDusk = new THREE.Color(0x5a6a9a), zNight = new THREE.Color(0x0a1226);
+    const hDay = new THREE.Color(0xd6d4c2), hDusk = new THREE.Color(0xf0a060), hNight = new THREE.Color(0x24304a);
     const zenith = lerpC(lerpC(zNight, zDay, day), zDusk, dusk * 0.7);
     const horizon = lerpC(lerpC(hNight, hDay, day), hDusk, dusk);
     const sunCol = lerpC(new THREE.Color(0xffffff), new THREE.Color(0xff8a3a), dusk);
@@ -333,17 +337,19 @@ export class CityWorld {
     const lightDir = useMoon ? new THREE.Vector3(-d.x, Math.max(0.4, -d.y), -d.z).normalize() : dir.clone().setY(Math.max(dir.y, 0.05)).normalize();
     this.sun.position.copy(focus).addScaledVector(lightDir, 150);
     this.sun.target.position.copy(focus);
-    this.sun.color.copy(useMoon ? new THREE.Color(0x8aa0d0) : lerpC(new THREE.Color(0xfff4e0), new THREE.Color(0xff9a50), dusk));
+    this.sun.color.copy(useMoon ? new THREE.Color(0x8aa0d0) : lerpC(new THREE.Color(0xffeccc), new THREE.Color(0xff9a50), dusk));
     this.sun.intensity = useMoon ? 0.55 * night : 0.45 + 2.3 * day + 0.9 * dusk;
-    this.hemi.color.copy(lerpC(new THREE.Color(0x5a70a8), new THREE.Color(0xd8e4f0), day).lerp(new THREE.Color(0xffb880), dusk * 0.5));
-    this.hemi.groundColor.copy(lerpC(new THREE.Color(0x262c3a), new THREE.Color(0x6a5a40), day));
+    this.hemi.color.copy(lerpC(new THREE.Color(0x5a70a8), new THREE.Color(0xe6e2d0), day).lerp(new THREE.Color(0xffb880), dusk * 0.5));
+    this.hemi.groundColor.copy(lerpC(new THREE.Color(0x262c3a), new THREE.Color(0x8a7a58), day)); // rebote cálido del suelo
     this.hemi.intensity = 0.75 + 0.5 * day + 0.35 * dusk;
 
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.copy(horizon).lerp(new THREE.Color(0xe8a070), dusk * 0.3);
-    fog.near = 60 + 60 * day; fog.far = 330 + 260 * day;
+    // Smog: bruma amarillo-grisácea que funde lo lejano (más densa de día)
+    fog.color.copy(horizon).lerp(new THREE.Color(0xcfc39c), 0.45 * day).lerp(new THREE.Color(0xe8a070), dusk * 0.3);
+    fog.near = 18 + 10 * day; fog.far = 240 + 120 * day;
 
-    this.sky.update(focus, dir, zenith, horizon, sunCol, night);
+    this.time += 1 / 60;
+    this.sky.update(focus, dir, zenith, horizon, sunCol, night, this.time);
     if (this.litMat) this.litMat.emissiveIntensity = 1.1 * night + 0.1 * dusk;
     if (this.shopLit) this.shopLit.emissiveIntensity = 0.9 * night;
     if (this.signMat) this.signMat.emissive.setScalar(0.35 * night);

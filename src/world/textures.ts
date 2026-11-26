@@ -577,3 +577,20 @@ export function stuccoBump(): THREE.CanvasTexture {
     grain(g, s, r, 40);
   }, { srgb: false });
 }
+
+/** Tierra de terreno baldío: marrón claro, huellas de cauchos, piedras y matas de monte. 1 rep = 6 m. */
+export function dirt(): THREE.CanvasTexture {
+  return make('dirt', 256, (g, s, r) => {
+    g.fillStyle = '#9a8262'; g.fillRect(0, 0, s, s);
+    blotches(g, s, r, 30, 'rgba(120,95,60,A)', 50, 0.5);
+    blotches(g, s, r, 18, 'rgba(180,160,120,A)', 40, 0.35);
+    blotches(g, s, r, 14, 'rgba(80,95,45,A)', 22, 0.45);   // parches de monte
+    grain(g, s, r, 34, 2);
+    // Huellas de cauchos
+    for (const x0 of [70, 120]) { g.strokeStyle = 'rgba(70,55,35,0.35)'; g.lineWidth = 9; g.beginPath(); g.moveTo(x0, 0); g.bezierCurveTo(x0 + 30, s * 0.4, x0 - 20, s * 0.7, x0 + 10, s); g.stroke(); }
+    // Piedras
+    for (let i = 0; i < 90; i++) { const v = 120 + r() * 80; g.fillStyle = `rgb(${v},${v * 0.95},${v * 0.85})`; g.beginPath(); g.ellipse(r() * s, r() * s, 1 + r() * 2.5, 1 + r() * 1.8, r(), 0, 7); g.fill(); }
+    // Matas
+    for (let i = 0; i < 600; i++) { const x = r() * s, y = r() * s; if (r() < 0.7) continue; g.strokeStyle = `rgba(${70 + r() * 40},${100 + r() * 40},40,0.8)`; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 4, y - 4 - r() * 5); g.stroke(); }
+  });
+}

@@ -13,14 +13,35 @@ export class Sky {
       uniforms: {
         zenith: { value: new THREE.Color() }, horizon: { value: new THREE.Color() },
         sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: new THREE.Color() },
+        uTime: { value: 0 }, uNight: { value: 0 }, uHaze: { value: new THREE.Color(0xd8cfae) },
       },
       vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix*vec4(position,1.); gl_Position = projectionMatrix*p; gl_Position.z = gl_Position.w; }`,
-      fragmentShader: `uniform vec3 zenith, horizon, sunDir, sunColor; varying vec3 vDir;
+      fragmentShader: `uniform vec3 zenith, horizon, sunDir, sunColor, uHaze; uniform float uTime, uNight; varying vec3 vDir;
+        // Ruido de valor + fbm para nubes procedurales
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+        float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ v += a * noise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
         void main(){
-          float h = clamp(vDir.y, -0.1, 1.0);
-          vec3 c = mix(horizon, zenith, pow(max(h,0.0), 0.55));
-          float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);
-          c += sunColor * (pow(s, 600.0) * 3.0 + pow(s, 12.0) * 0.35);
+          vec3 d = normalize(vDir);
+          float h = clamp(d.y, -0.1, 1.0);
+          vec3 c = mix(horizon, zenith, pow(max(h,0.0), 0.6));
+          // Banda de smog cálido pegada al horizonte
+          c = mix(c, uHaze, (1.0 - smoothstep(0.0, 0.22, h)) * 0.55 * (1.0 - uNight));
+          float s = max(dot(d, normalize(sunDir)), 0.0);
+          c += sunColor * (pow(s, 900.0) * 2.5 + pow(s, 14.0) * 0.3);
+          // Nubes: proyección sobre un plano alto; se desvanecen hacia el horizonte (por la bruma)
+          if (d.y > 0.02) {
+            vec2 uv = d.xz / (d.y + 0.12) * 1.6 + vec2(uTime * 0.012, uTime * 0.004);
+            float n = fbm(uv);
+            float n2 = fbm(uv * 2.7 + 5.0);
+            float cover = smoothstep(0.5, 0.78, n * 0.75 + n2 * 0.35);
+            float lit = clamp(0.55 + 0.6 * dot(normalize(vec3(sunDir.x, 0.0, sunDir.z) + 1e-4), normalize(vec3(d.x, 0.0, d.z))) * 0.5 + (n2 - 0.5), 0.0, 1.2);
+            vec3 cloudDay = mix(vec3(0.62, 0.62, 0.66), vec3(1.0, 0.97, 0.9), lit);
+            vec3 cloudCol = mix(cloudDay * mix(vec3(1.0), sunColor, 0.35), vec3(0.08, 0.09, 0.13), uNight);
+            float fade = smoothstep(0.02, 0.25, d.y);
+            c = mix(c, cloudCol, cover * fade * 0.92);
+          }
           gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
         }`,
@@ -61,7 +82,9 @@ export class Sky {
     this.group.add(hm);
   }
 
-  update(center: THREE.Vector3, sunDir: THREE.Vector3, zenith: THREE.Color, horizon: THREE.Color, sunColor: THREE.Color, night: number): void {
+  update(center: THREE.Vector3, sunDir: THREE.Vector3, zenith: THREE.Color, horizon: THREE.Color, sunColor: THREE.Color, night: number, time = 0): void {
+    this.mat.uniforms.uTime!.value = time;
+    this.mat.uniforms.uNight!.value = night;
     this.group.position.set(center.x, 0, center.z);
     this.mat.uniforms.zenith!.value.copy(zenith);
     this.mat.uniforms.horizon!.value.copy(horizon);

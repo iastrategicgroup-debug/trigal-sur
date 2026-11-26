@@ -151,7 +151,7 @@ export class UI {
       i.addEventListener('input', () => { this.settings = { ...this.settings, [key]: Number(i.value) }; this.h.onSettingsChange(this.settings); });
       return i;
     };
-    const check = (key: 'invertY' | 'retro480' | 'showFps' | 'shadows') => {
+    const check = (key: 'invertY' | 'retro480' | 'showFps' | 'shadows' | 'postfx') => {
       const i = el('input'); i.type = 'checkbox'; i.checked = this.settings[key];
       i.addEventListener('change', () => { this.settings = { ...this.settings, [key]: i.checked }; this.h.onSettingsChange(this.settings); });
       return i;
@@ -161,6 +161,7 @@ export class UI {
     row('Volumen', range('volume', 0, 1, 0.05));
     row('Render retro (480p)', check('retro480'));
     row('Sombras', check('shadows'));
+    row('Efectos cinematográficos', check('postfx'));
     row('Mostrar FPS', check('showFps'));
     p.append(this.buttons([['Volver', () => this.show(this.backTarget)]]));
     s.append(p);

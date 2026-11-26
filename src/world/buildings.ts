@@ -7,7 +7,7 @@ import { densify } from './roads';
 /** Lote: rectángulo orientado. `u` va a lo largo de la calle; `n` apunta hacia la calle (frente). */
 export interface Lot {
   c: V2; u: V2; n: V2; hw: number; hd: number;
-  kind: 'quinta' | 'comercio';
+  kind: 'quinta' | 'comercio' | 'baldio';
   road: Road;
 }
 
@@ -17,6 +17,7 @@ export interface BuildingsOut {
   tanks: { x: number; y: number; z: number; s: number }[];
   backyardTrees: V2[];
   plants: V2[];
+  yardPalms: V2[];
   lots: Lot[];
 }
 
@@ -121,7 +122,7 @@ export function placeLots(map: CityMap, rnd: () => number): Lot[] {
         if (!placed) { acc = Math.min(acc, hw); continue; }
         const { c, hd, cells } = placed;
         cells.forEach((k) => occ.add(k));
-        lots.push({ c, u, n, hw, hd, kind: commercial ? 'comercio' : 'quinta', road });
+        lots.push({ c, u, n, hw, hd, kind: commercial ? 'comercio' : rnd() < 0.08 ? 'baldio' : 'quinta', road });
         acc = 0;
       }
     }
@@ -162,9 +163,10 @@ class LotFrame {
 }
 
 export function buildLots(lots: Lot[], bank: GeoBank, rnd: () => number): BuildingsOut {
-  const out: BuildingsOut = { solids: [], wires: [], tanks: [], backyardTrees: [], plants: [], lots };
+  const out: BuildingsOut = { solids: [], wires: [], tanks: [], backyardTrees: [], plants: [], yardPalms: [], lots };
   for (const lot of lots) {
     if (lot.kind === 'quinta') buildQuinta(lot, bank, rnd, out);
+    else if (lot.kind === 'baldio') buildBaldio(lot, bank, rnd, out);
     else buildShop(lot, bank, rnd, out);
   }
   return out;
@@ -424,6 +426,7 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
     f.box(stucco, cA, (b0 + b1) / 2, cw + 0.1, (b1 - b0) / 2, 2.45, 2.6, 3, col('#e8e2d8'));
     for (const ca of [cA - cw, cA + cw]) f.box(stucco, ca, b1 - 0.15, 0.1, 0.1, 0, 2.45, 3, col('#e8e2d8'));
   }
+  if (rnd() < 0.25) { const pa = (gc > 0 ? -1 : 1) * (hw - 1.3), pb = front - 1.3; out.yardPalms.push({ x: f.x(pa, pb), z: f.z(pa, pb) }); }
   const yard = bBack - (-hd);
   if (yard >= 5 && rnd() < 0.7) { const tb = (-hd + bBack) / 2; const ta = (rnd() - 0.5) * (hw - 2.5); out.backyardTrees.push({ x: f.x(ta, tb), z: f.z(ta, tb) }); }
 }
@@ -470,4 +473,36 @@ function buildShop(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsOut
   addWindows(f, bank, rnd, hw, front, hw, back, 1, 0, floors, FH);
   if (rnd() < 0.5) out.tanks.push({ x: f.x(0, back + 2), y: y, z: f.z(0, back + 2), s: 1.1 });
   out.solids.push(rectCorners(lot.c, lot.u, lot.n, hw, hd - 0.3));
+}
+
+/** Terreno baldío: tierra, monte, alguna mata y cerca de postes con alambre de púas. Se puede caminar adentro. */
+function buildBaldio(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsOut): void {
+  const f = new LotFrame(lot);
+  const { hw, hd } = lot;
+  const d = bank.get('dirt');
+  const y = 0.015;
+  d.quad(f.v(-hw, y, -hd), f.v(hw, y, -hd), f.v(hw, y, hd), f.v(-hw, y, hd), [lot.c.x / 6, lot.c.z / 6, lot.c.x / 6 + (hw * 2) / 6, lot.c.z / 6 + (hd * 2) / 6], tmpC.setScalar(0.9 + rnd() * 0.15));
+  // Postes de madera cada 2,5 m en el perímetro (salvo un hueco de entrada) y 3 hilos de alambre
+  const st = bank.get('stucco');
+  const P: [number, number][] = [[-hw, hd], [hw, hd], [hw, -hd], [-hw, -hd], [-hw, hd]];
+  const gap = (rnd() - 0.5) * hw;
+  for (let k = 0; k < 4; k++) {
+    const [a0, b0] = P[k]!, [a1, b1] = P[k + 1]!;
+    const len = Math.hypot(a1 - a0, b1 - b0), n = Math.max(1, Math.round(len / 2.5));
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + ((a1 - a0) * i) / n, b = b0 + ((b1 - b0) * i) / n;
+      if (k === 0 && Math.abs(a - gap) < 1.6) continue;
+      f.box(st, a, b, 0.05, 0.05, 0, 1.3, 1, col('#6a5038'));
+    }
+    if (k === 0) continue;
+    for (const hy of [0.4, 0.8, 1.2]) out.wires.push(f.x(a0, b0), hy, f.z(a0, b0), f.x(a1, b1), hy, f.z(a1, b1));
+  }
+  for (const hy of [0.4, 0.8, 1.2]) {
+    out.wires.push(f.x(-hw, hd), hy, f.z(-hw, hd), f.x(gap - 1.6, hd), hy, f.z(gap - 1.6, hd));
+    out.wires.push(f.x(gap + 1.6, hd), hy, f.z(gap + 1.6, hd), f.x(hw, hd), hy, f.z(hw, hd));
+  }
+  // Monte y matas
+  for (let k = 0; k < 5 + Math.floor(rnd() * 6); k++) out.plants.push({ x: f.x((rnd() - 0.5) * hw * 1.8, (rnd() - 0.5) * hd * 1.8), z: f.z((rnd() - 0.5) * hw * 1.8, (rnd() - 0.5) * hd * 1.8) });
+  if (rnd() < 0.6) out.yardPalms.push({ x: f.x((rnd() - 0.5) * hw, (rnd() - 0.5) * hd), z: f.z((rnd() - 0.5) * hw, (rnd() - 0.5) * hd) });
+  if (rnd() < 0.5) out.backyardTrees.push({ x: f.x((rnd() - 0.5) * hw, -hd * 0.5), z: f.z((rnd() - 0.5) * hw, -hd * 0.5) });
 }

@@ -15,6 +15,7 @@ import { Pickups } from '../world/Pickups';
 import { Avatar } from '../character/Avatar';
 import { joanParams } from '../character/archetypes';
 import { NpcManager } from '../npc/NpcManager';
+import { PostFX } from './PostFX';
 
 export type FlowState = 'loading' | 'menu' | 'playing' | 'paused';
 
@@ -57,6 +58,8 @@ export class Game {
   private saveTimer = 0;
   private tutorial: Tutorial;
   private joan!: Avatar;
+  private fx!: PostFX;
+  private night = 0;
   private npcs!: NpcManager;
   /** Estado de acción del jugador (la locomoción se decide por velocidad). */
   private action: 'ninguna' | 'golpe' | 'saludar' | 'sentado' = 'ninguna';
@@ -73,10 +76,12 @@ export class Game {
     this.money = (this.save as SaveData & { money?: number }).money ?? 0;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.info.autoReset = false; // con postproceso hay varias pasadas: se reinicia una vez por cuadro
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // sombras de borde suave
     this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.1, 1200);
     this.cam = new ThirdPersonCamera(this.camera);
+    this.fx = new PostFX(this.renderer, this.scene, this.camera);
     this.input = new Input(canvas);
     this.ui = new UI(uiRoot, this.save.settings, {
       onPlay: () => this.play(),
@@ -204,6 +209,7 @@ export class Game {
     const ratio = this.save.settings.retro480 ? 480 / h : Math.min(window.devicePixelRatio, 2);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
+    this.fx?.setSize(w, h, ratio);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -396,7 +402,7 @@ export class Game {
     this.ui.setAim(this.cam.aim && playing);
     this.cam.update(frameDt, this.player.object.position, speed > CONFIG.player.speeds.jog + 0.5, speed > 0.3, this.player.facing);
     this.hours = (CONFIG.day.startHour + (this.gameTime / CONFIG.day.realSecondsPerDay) * 24) % 24;
-    this.world.update(this.hours, this.player.pos);
+    this.night = this.world.update(this.hours, this.player.pos);
     if (playing) {
       this.ui.updateHud({ hours: this.hours, health: this.vitals.health, shield: this.vitals.shield, stamina: this.stamina, hint: this.hint, money: this.money });
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
@@ -405,7 +411,10 @@ export class Game {
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }
     this.updateDebug(frameDt, speed);
-    this.renderer.render(this.scene, this.camera);
+    this.fx.enabled = this.save.settings.postfx;
+    this.fx.update(this.gameTime, this.night);
+    this.renderer.info.reset();
+    this.fx.render(frameDt);
     this.input.endFrame();
   }
 

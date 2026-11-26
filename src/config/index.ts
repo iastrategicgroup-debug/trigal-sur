@@ -46,7 +46,7 @@ export const CONFIG = {
   camera: {
     pitchMin: -10,
     pitchMax: 60,
-    distances: [2.5, 4.5, 8] as const,
+    distances: [2.5, 4.5, 8, 14] as const, // 14 m: vista amplia (plano alto)
     targetHeight: 1.5,
     fov: 60,
     fovRunBoost: 8,

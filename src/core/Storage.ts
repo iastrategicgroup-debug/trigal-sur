@@ -7,6 +7,7 @@ export interface Settings {
   retro480: boolean;     // render a 480p
   showFps: boolean;
   shadows: boolean;      // sombras dinámicas del sol
+  postfx: boolean;       // efectos cinematográficos (gradación, resplandor, bruma)
 }
 
 export interface SaveData {
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.7,
   retro480: false,
   showFps: false,
+  postfx: true,
   shadows: typeof matchMedia === 'function' ? !matchMedia('(pointer: coarse)').matches : true,
 };
 
