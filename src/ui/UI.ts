@@ -11,6 +11,7 @@ const CONTROLS: [string, string][] = [
   ['Rueda / V', 'Distancia de cámara'],
   ['Clic izq. / Q', 'Golpear'],
   ['E', 'Saludar / sentarse en un banco'],
+  ['Clic der.', 'Bloquear'],
   ['F', 'Subir o bajar de un vehículo'],
   ['M', 'Mapa'],
   ['Esc', 'Pausa'],
@@ -45,6 +46,14 @@ export class UI {
   private staminaEl: HTMLDivElement;
   private hintEl: HTMLDivElement;
   private streetEl: HTMLDivElement;
+  private toastEl: HTMLDivElement;
+  private deathEl: HTMLDivElement;
+  private placesEl: HTMLDivElement;
+  private moneyEl: HTMLDivElement;
+  private hurtEl: HTMLDivElement;
+  private lastStreet = '';
+  private streetTimer = 0;
+  private toastTimer = 0;
 
   constructor(root: HTMLElement, private settings: Settings, private h: UIHandlers) {
     // Carga
@@ -95,21 +104,26 @@ export class UI {
     this.hud = el('div', 'hud');
     const tr = el('div', 'hud-tr');
     this.clockEl = el('div', 'clock', '17:30');
+    this.moneyEl = el('div', 'money', '$0');
     const bars = el('div', 'bars');
     const mk = (cls: string, title: string) => { const b = el('div', `bar ${cls}`); b.title = title; const f = el('div'); b.append(f); bars.append(b); return f; };
     this.healthEl = mk('health', 'Salud');
     this.shieldEl = mk('shield', 'Escudo');
     this.staminaEl = mk('stamina', 'Resistencia');
-    tr.append(this.clockEl, bars);
+    tr.append(this.clockEl, bars, this.moneyEl);
     this.minimap = el('div', 'minimap');
     this.hintEl = el('div', 'hint');
     this.streetEl = el('div', 'street');
-    this.hud.append(tr, this.minimap, this.hintEl, this.streetEl);
+    this.hurtEl = el('div', 'hurt');
+    this.toastEl = el('div', 'toast');
+    this.placesEl = el('div', 'places');
+    this.hud.append(this.hurtEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
+    this.deathEl = el('div', 'death', '<div>HAS CAÍDO</div>');
 
     this.debug = el('div', 'debug');
     const attrib = el('div', 'attrib', '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors');
 
-    root.append(...this.screens.values(), this.hud, this.debug, attrib);
+    root.append(...this.screens.values(), this.hud, this.deathEl, this.debug, attrib);
   }
 
   private add(id: ScreenId, e: HTMLElement) { this.screens.set(id, e); }
@@ -135,7 +149,7 @@ export class UI {
       i.addEventListener('input', () => { this.settings = { ...this.settings, [key]: Number(i.value) }; this.h.onSettingsChange(this.settings); });
       return i;
     };
-    const check = (key: 'invertY' | 'retro480' | 'showFps') => {
+    const check = (key: 'invertY' | 'retro480' | 'showFps' | 'shadows') => {
       const i = el('input'); i.type = 'checkbox'; i.checked = this.settings[key];
       i.addEventListener('change', () => { this.settings = { ...this.settings, [key]: i.checked }; this.h.onSettingsChange(this.settings); });
       return i;
@@ -144,6 +158,7 @@ export class UI {
     row('Invertir eje vertical', check('invertY'));
     row('Volumen', range('volume', 0, 1, 0.05));
     row('Render retro (480p)', check('retro480'));
+    row('Sombras', check('shadows'));
     row('Mostrar FPS', check('showFps'));
     p.append(this.buttons([['Volver', () => this.show(this.backTarget)]]));
     s.append(p);
@@ -164,7 +179,7 @@ export class UI {
 
   setHudVisible(on: boolean): void { this.hud.classList.toggle('on', on); }
 
-  updateHud(v: { hours: number; health: number; shield: number; stamina: number; hint: string; street: string }): void {
+  updateHud(v: { hours: number; health: number; shield: number; stamina: number; hint: string; money: number }): void {
     const h = Math.floor(v.hours) % 24;
     const m = Math.floor((v.hours % 1) * 60);
     this.clockEl.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -173,6 +188,26 @@ export class UI {
     this.shieldEl.parentElement!.style.display = v.shield > 0 ? '' : 'none';
     this.staminaEl.style.width = `${v.stamina}%`;
     this.hintEl.textContent = v.hint;
-    this.streetEl.textContent = v.street;
+    this.moneyEl.textContent = '$' + v.money.toLocaleString('es-VE');
+    this.healthEl.parentElement!.classList.toggle('low', v.health < 25);
   }
+
+  /** Muestra el nombre de la calle unos segundos cuando cambia de vía. */
+  street(name: string, dt: number): void {
+    if (name && name !== this.lastStreet) {
+      this.lastStreet = name;
+      this.streetEl.textContent = name;
+      this.streetTimer = 4;
+    }
+    this.streetTimer -= dt;
+    this.streetEl.style.opacity = this.streetTimer > 0 ? String(Math.min(1, this.streetTimer)) : '0';
+    this.toastTimer -= dt;
+    this.toastEl.style.opacity = this.toastTimer > 0 ? String(Math.min(1, this.toastTimer)) : '0';
+  }
+
+  toast(html: string, seconds = 4): void { this.toastEl.innerHTML = html; this.toastTimer = seconds; }
+  setPlaces(found: number, total: number): void { this.placesEl.textContent = `Lugares ${found}/${total}`; }
+  /** Destello rojo en los bordes al recibir daño. */
+  hurt(): void { this.hurtEl.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => this.hurtEl.classList.remove('on'))); }
+  setDead(on: boolean): void { this.deathEl.classList.toggle('on', on); }
 }

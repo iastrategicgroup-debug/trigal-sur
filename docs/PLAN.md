@@ -33,19 +33,29 @@ trigal-sur/
 | # | Fase | Estado |
 |---|------|--------|
 | 1 | Base y bucle de juego | ✅ hecha |
-| 2 | Mapa real (OSM) y calles | ⛔ bloqueada: la red del entorno no llega a Overpass |
-| 3 | Controles, máquina de estados, resistencia, cámara y colisiones, golpes | pendiente |
+| 2 | Mapa real (OSM) y calles | ✅ datos vía API de OSM |
+| 3 | Controles, máquina de estados, resistencia, cámara y colisiones | colisiones listas |
 | 4 | Protagonista, esqueleto, animaciones y visor (requiere tu aprobación del parecido) | pendiente |
-| 5 | Edificios, ambientación y texturas estilo PS2 | pendiente |
-| 6 | HUD completo, minimapa, peatones, tráfico, **conducción**, salud/escudo, sonido, ciclo de día | pendiente |
+| 5 | Edificios, ambientación y texturas estilo PS2 | en curso (adelantada) |
+| 6 | Minimapa, peatones, tráfico, conducción, combate, daño, muertes, ladrones, sonido | pendiente |
 | 7 | Optimización, medición de rendimiento y documentación | pendiente |
 
-## Cambios de alcance pedidos (sobre la especificación original)
+## Cambios de alcance pedidos (reemplazan el "fuera de alcance" original)
 
-1. **Conducción** (fase 6): tecla F para subir/bajar de carros estacionados o detenidos. Física arcade de bicicleta (Ackermann simplificado), sigue colisiones con edificios. El tráfico IA sigue sin atropellar al jugador a pie.
-2. **Salud y escudo con barras** (HUD hecho; lógica en fases 3 y 6). Daño solo por caídas de más de 3 m y choques al conducir. El escudo absorbe primero. Salud regenera hasta 60. A 0: fundido a negro y reaparición en la Plaza José Martí. El escudo se recarga con objetos "Escudo" repartidos por el mapa.
-3. **Golpes** (fase 3/6): clic izquierdo o Q, combo de 3. Sin sangre ni muertes: el peatón trastabilla o cae, se levanta y huye o protesta. Cambia el "fuera de alcance: violencia" de la especificación original a violencia leve tipo arcade. El protagonista (persona real) nunca recibe animaciones humillantes.
-4. **Texturas "tipo GTA"**: estilo de la era PS2 (128–256 px, ruido, suciedad, sombras horneadas, gradación cálida), generadas por código. No se usa ningún asset de GTA/Rockstar.
+1. **Vehículos manejables** (fase 6): carros, motos y helicópteros. Tecla F para subir y bajar. Física arcade (modelo de bicicleta) con colisiones contra edificios y otros carros.
+2. **Salud, escudo y daño real**: barras en el HUD. Daño por golpes, caídas de más de 3 m, atropellos y choques. El escudo absorbe primero. La salud se regenera hasta 60. A 0: pantalla "HAS CAÍDO" y reaparición en la Plaza José Martí con penalización de dinero.
+3. **Combate cuerpo a cuerpo**: el protagonista golpea (clic izquierdo o Q, combo de 3, bloqueo con clic derecho). Los NPC se defienden a golpes y los ladrones roban a golpes.
+4. **Muertes de NPC**: los peatones y ladrones mueren por golpes o atropellos; el cuerpo cae (ragdoll simple), queda en el suelo y desaparece a los 30 s.
+5. **Accidentes**: el tráfico puede chocar y atropellar. Daño por vehículo con humo, abolladuras e incendio por encima del 90 % de daño.
+6. **Ladrones**: NPC que arrebatan el dinero, huyen y pelean si los alcanzas. Al derrotarlos recuperas lo robado.
+7. **Texturas al estilo de la era PS2**, generadas por código; no se usa ningún asset de GTA/Rockstar.
+8. El protagonista (persona real) muere con animaciones normales de juego, nunca humillantes.
+9. **Botín sin sangre**: los NPC derrotados sueltan objetos flotantes que brillan (dinero, salud, escudo). ✅ sistema hecho
+10. **Tutorial con minicuadros de diálogo**. ✅ hecho
+11. **Cerro escalable con carrera de motos cuesta abajo**: premio de $100 si llegas primero (fase 6, con las motos).
+12. **Casas en las que se entra, con NPC adentro** (familias en la sala o la cocina) (fase 5/6).
+13. **Camiones de comida rápida** (comprar y comer), **tiendas** en las que se entra y **gimnasio** (Gimnasio Olimpus de OSM) con animaciones de levantar pesas, comer y cansarse (fase 6).
+14. **Tráfico con semáforos y policía**: los delitos (golpes, robos, atropellos) suben un nivel de búsqueda; la policía persigue y arresta (fase 6).
 
 ## Decisiones menores
 
@@ -58,3 +68,7 @@ trigal-sur/
 - Render retro 480p: se ajusta el pixelRatio para que la altura interna sea 480 px, con `image-rendering: pixelated`.
 - La foto llegó como `jefe-frente.png` (no `.jpg`): el pipeline aceptará `.png` y `.jpg`.
 - Tecla F para vehículos (E ya está para saludar/sentarse); Q o clic izquierdo para golpear.
+- Los datos de OSM se bajan de la API oficial (`api.openstreetmap.org`), porque Overpass corta las conexiones desde este entorno; el importador también acepta un `.osm` exportado a mano.
+- OSM vs. referencias: la Plaza La Marsellesa **no existe** en OSM; el C.C. Trigal Sur aparece como **"C.C. Trigal Centro"**; solo hay 1 huella de edificio en el área, así que las casas se generan sobre lotes reales a lo largo de las calles.
+- El césped de las plazas va al ras y debajo del asfalto: si el polígono de OSM invade la calzada, manda la calle.
+- Elevaciones (distribuidor, autopista) planas por ahora.

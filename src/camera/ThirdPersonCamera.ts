@@ -20,6 +20,7 @@ export class ThirdPersonCamera {
 
   look(dx: number, dy: number, sensitivity: number, invertY: boolean): void {
     if (this.inIntro) return;
+    if (dx !== 0 || dy !== 0) this.lastMouse = 0;
     this.yaw -= dx * 0.0025 * sensitivity;
     this.pitch += dy * 0.0025 * sensitivity * (invertY ? -1 : 1);
     this.pitch = THREE.MathUtils.clamp(this.pitch, CONFIG.camera.pitchMin * DEG, CONFIG.camera.pitchMax * DEG);
@@ -33,14 +34,32 @@ export class ThirdPersonCamera {
     this.distIndex = THREE.MathUtils.clamp(this.distIndex + steps, 0, CONFIG.camera.distances.length - 1);
   }
 
-  update(frameDt: number, playerPos: THREE.Vector3, running: boolean): void {
+  /** Limita la distancia si hay paredes entre el objetivo y la cámara (fracción 0..1). */
+  occlusion: ((ax: number, az: number, bx: number, bz: number) => number) | null = null;
+  private lastMouse = 0;
+
+  update(frameDt: number, playerPos: THREE.Vector3, running: boolean, moving = false, facing = 0): void {
     const goal = CONFIG.camera.distances[this.distIndex]!;
     this.dist += (goal - this.dist) * (1 - Math.exp(-8 * frameDt));
     this.target.copy(playerPos).y += CONFIG.camera.targetHeight;
     const cp = Math.cos(this.pitch);
+
+    // Recentrado detrás del personaje tras 3 s sin mover el ratón mientras camina
+    this.lastMouse += frameDt;
+    if (moving && this.lastMouse > CONFIG.camera.recenterDelay && !this.inIntro) {
+      let d = facing + Math.PI - this.yaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.yaw += d * (1 - Math.exp(-1.5 * frameDt));
+    }
+    let dist = this.dist;
+    if (this.occlusion && !this.inIntro) {
+      const bx = this.target.x + Math.sin(this.yaw) * cp * dist, bz = this.target.z + Math.cos(this.yaw) * cp * dist;
+      const t = this.occlusion(this.target.x, this.target.z, bx, bz);
+      if (t < 1) dist = Math.max(0.6, dist * t - 0.3);
+    }
     const desired = new THREE.Vector3(
       Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp,
-    ).multiplyScalar(this.dist).add(this.target);
+    ).multiplyScalar(dist).add(this.target);
 
     if (this.inIntro) {
       this.introT = Math.min(1, this.introT + frameDt / this.introDur);

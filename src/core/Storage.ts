@@ -6,6 +6,7 @@ export interface Settings {
   volume: number;        // 0..1
   retro480: boolean;     // render a 480p
   showFps: boolean;
+  shadows: boolean;      // sombras dinámicas del sol
 }
 
 export interface SaveData {
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.7,
   retro480: false,
   showFps: false,
+  shadows: typeof matchMedia === 'function' ? !matchMedia('(pointer: coarse)').matches : true,
 };
 
 function defaults(): SaveData {

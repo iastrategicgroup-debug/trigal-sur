@@ -21,7 +21,7 @@ M para el mapa, Esc para pausar, F3 para la depuración.
 
 ## Estado
 
-Ver [docs/PLAN.md](docs/PLAN.md). Fase 1 terminada (bucle, pantallas, cámara, HUD básico, escenario de prueba).
+Ver [docs/PLAN.md](docs/PLAN.md). Fases 1 y 2 terminadas; fase 5 (ciudad y texturas) adelantada. Capturas en `docs/capturas/`.
 
 ## Créditos
 

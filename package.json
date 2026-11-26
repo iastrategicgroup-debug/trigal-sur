@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "map:fetch": "node scripts/map-fetch.mjs"
+    "map:fetch": "NODE_USE_ENV_PROXY=1 node scripts/map-fetch.mjs",
+    "map:import": "node scripts/osm-import.mjs"
   },
   "dependencies": {
     "three": "0.170.0"
