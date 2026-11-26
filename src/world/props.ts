@@ -178,7 +178,8 @@ export interface PropsOut {
   trunks: { p: V2; r: number }[];
 }
 
-export function buildProps(input: PropsInput, rnd: () => number): PropsOut {
+/** `cables`: postes completos para tender cables (globales); si se omite, no se tienden. */
+export function buildProps(input: PropsInput, rnd: () => number, cables?: PropsInput['posts']): PropsOut {
   const group = new THREE.Group();
   group.name = 'utilería';
   const trunks: { p: V2; r: number }[] = [];
@@ -232,14 +233,15 @@ export function buildProps(input: PropsInput, rnd: () => number): PropsOut {
   group.add(instanced(lampGeo, lampMat, postItems, false));
   input.posts.forEach((p) => trunks.push({ p: p.p, r: 0.25 }));
 
-  // Cables con catenaria entre postes consecutivos
+  // Cables con catenaria entre postes consecutivos (de la lista global, para no cortarlos en los bordes de zona)
   const cable: number[] = [];
-  for (let i = 0; i < input.posts.length - 1; i++) {
-    const a = input.posts[i]!.p, b = input.posts[i + 1]!.p;
+  const cp = cables ?? [];
+  for (let i = 0; i < cp.length - 1; i++) {
+    const a = cp[i]!.p, b = cp[i + 1]!.p;
     const d = Math.hypot(b.x - a.x, b.z - a.z);
     if (d > 45) continue;
     for (const off of [-0.7, 0, 0.7]) {
-      const ry = input.posts[i]!.ry;
+      const ry = cp[i]!.ry;
       const ox = Math.cos(ry) * off, oz = -Math.sin(ry) * off;
       const N = 6;
       for (let k = 0; k < N; k++) {
@@ -252,7 +254,7 @@ export function buildProps(input: PropsInput, rnd: () => number): PropsOut {
   const cableGeo = new THREE.BufferGeometry();
   cableGeo.setAttribute('position', new THREE.Float32BufferAttribute(cable, 3));
   const cableMat = new THREE.LineBasicMaterial({ color: 0x151515 });
-  group.add(new THREE.LineSegments(cableGeo, cableMat));
+  if (cable.length) group.add(new THREE.LineSegments(cableGeo, cableMat));
 
   // Tanques de agua (negros, tipo Rotoplas genérico)
   const tankGeo = new THREE.CylinderGeometry(0.6, 0.55, 1.3, 10).translate(0, 0.65, 0);

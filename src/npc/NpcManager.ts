@@ -240,8 +240,16 @@ export class NpcManager {
         if (!oneShot) n.avatar.play(anim);
         n.avatar.setGaitSpeed(animSpeed);
       }
+      // Joan y los NPC no se atraviesan: se empujan mutuamente (el NPC cede más)
+      if (n.state !== 'muerto' && !player.dead && dP < 0.62 && dP > 1e-4) {
+        const push = 0.62 - dP;
+        n.pos.x -= (toP.x / dP) * push * 0.7; n.pos.z -= (toP.z / dP) * push * 0.7;
+        player.pos.x += (toP.x / dP) * push * 0.3; player.pos.z += (toP.z / dP) * push * 0.3;
+        this.world.collision.resolve(n.pos, 0.3);
+      }
       n.avatar.object.position.copy(n.pos);
       n.avatar.object.rotation.y = n.facing;
+      n.avatar.mesh.castShadow = dP < 32;
       if (dP < 70) n.avatar.update(dt); // fuera de rango la animación se congela (ahorro)
     }
   }

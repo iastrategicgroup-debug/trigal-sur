@@ -72,6 +72,7 @@ export class Avatar {
   dispose(): void {
     this.mixer.stopAllAction();
     this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material[]).forEach((m, i) => { if (i === 1) (m as THREE.MeshLambertMaterial).map?.dispose(); m.dispose(); });
+    const m = this.mesh.material as THREE.MeshPhongMaterial;
+    m.map?.dispose(); m.dispose();
   }
 }

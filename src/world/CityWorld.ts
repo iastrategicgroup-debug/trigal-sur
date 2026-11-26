@@ -23,7 +23,7 @@ export class CityWorld {
   private litMat!: THREE.MeshLambertMaterial;
   private shopLit?: THREE.MeshLambertMaterial;
   private signMat!: THREE.MeshLambertMaterial;
-  private lampMat!: THREE.MeshBasicMaterial;
+  private lampMat?: THREE.MeshBasicMaterial;
   private poolMat!: THREE.MeshBasicMaterial;
   private parks: { poly: V2[] }[] = [];
   readonly benches: { p: V2; ry: number }[] = [];
@@ -65,7 +65,14 @@ export class CityWorld {
     this.buildOsmBuildings(bank);
 
     const lots = placeLots(map, rnd);
-    const built = buildLots(lots, bank, rnd);
+    // Edificios divididos por zonas de 200 m: la cámara y las sombras solo dibujan las zonas que ven
+    const zoneBanks = new Map<string, GeoBank>();
+    const built = buildLots(lots, (lot) => {
+      const k = `${Math.floor(lot.c.x / 200)},${Math.floor(lot.c.z / 200)}`;
+      let zb = zoneBanks.get(k);
+      if (!zb) zoneBanks.set(k, (zb = new GeoBank()));
+      return zb;
+    }, rnd);
     this.lotsList = lots;
     built.solids.forEach((p) => this.collision.addPolygon(p));
     this.stats.lots = lots.length;
@@ -73,6 +80,7 @@ export class CityWorld {
     this.stats.comercios = lots.filter((l) => l.kind === 'comercio').length;
 
     this.root.add(...this.meshesFromBank(bank));
+    for (const zb of zoneBanks.values()) this.root.add(...this.meshesFromBank(zb));
 
     // Cerco eléctrico
     const wg = new THREE.BufferGeometry();
@@ -83,10 +91,29 @@ export class CityWorld {
     const props = this.collectProps(rnd, built.backyardTrees, built.tanks);
     props.plants = built.plants;
     props.palms.push(...built.yardPalms);
-    const out = buildProps(props, rnd);
-    this.root.add(out.group);
-    this.lampMat = out.lampMat;
-    out.trunks.forEach((t) => this.collision.addCircle(t.p.x, t.p.z, t.r));
+    // Utilería por zonas de 300 m: cámara y sombras solo dibujan los árboles/postes de las zonas visibles
+    const Z = 300;
+    const zk = (p: V2) => `${Math.floor(p.x / Z)},${Math.floor(p.z / Z)}`;
+    const zones = new Map<string, PropsInput>();
+    const zoneOf = (p: V2) => { const k = zk(p); let z = zones.get(k); if (!z) zones.set(k, (z = { palms: [], mangos: [], samans: [], posts: [], tanks: [], benches: [], plants: [], smallTrees: [] })); return z; };
+    props.palms.forEach((p) => zoneOf(p).palms.push(p));
+    props.mangos.forEach((p) => zoneOf(p).mangos.push(p));
+    props.samans.forEach((p) => zoneOf(p).samans.push(p));
+    props.posts.forEach((p) => zoneOf(p.p).posts.push(p));
+    props.tanks.forEach((t) => zoneOf(t).tanks.push(t));
+    props.benches.forEach((b) => zoneOf(b.p).benches.push(b));
+    props.plants.forEach((p) => zoneOf(p).plants.push(p));
+    (props.smallTrees ?? []).forEach((p) => zoneOf(p).smallTrees!.push(p));
+    let first = true;
+    for (const zin of zones.values()) {
+      const out = buildProps(zin, rnd, first ? props.posts : undefined);
+      first = false;
+      this.root.add(out.group);
+      this.lampMat ??= out.lampMat;
+      out.trunks.forEach((t) => this.collision.addCircle(t.p.x, t.p.z, t.r));
+      // todas las zonas comparten el color de los faroles (de noche se encienden juntos)
+      out.group.traverse((o) => { const m = o as THREE.Mesh; if (m.material === out.lampMat && this.lampMat) m.material = this.lampMat; });
+    }
     this.buildLightPools(props.posts);
 
     // Límites del mapa: muro bajo de tierra/vegetación (barrera natural)
@@ -109,7 +136,16 @@ export class CityWorld {
     for (const [name, p] of avenues) this.places.push({ id: 'av:' + name, name, p, r: 25 });
   }
 
+  private matCache = new Map<string, THREE.Material>();
   private material(key: string): THREE.Material {
+    const hit = this.matCache.get(key);
+    if (hit) return hit;
+    const m = this.makeMaterial(key);
+    this.matCache.set(key, m);
+    return m;
+  }
+
+  private makeMaterial(key: string): THREE.Material {
     const L = (o: THREE.MeshLambertMaterialParameters) => new THREE.MeshLambertMaterial({ vertexColors: true, ...o });
     switch (key) {
       case 'asphalt': return L({ map: T.asphalt(), side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
@@ -245,8 +281,7 @@ export class CityWorld {
           const p = edge[i]!;
           if (!inLimits(p)) continue;
           // No dentro de otra calzada
-          const near = this.map.nearestRoad(p.x, p.z, 30);
-          if (near && near.road !== road && near.dist < near.road.width / 2 + 0.5) continue;
+          if (this.map.onCarriageway(p.x, p.z, 0.6)) continue;
           acc = 0;
           if (isAvenue) palms.push(p);
           else {
@@ -353,7 +388,7 @@ export class CityWorld {
     if (this.litMat) this.litMat.emissiveIntensity = 1.1 * night + 0.1 * dusk;
     if (this.shopLit) this.shopLit.emissiveIntensity = 0.9 * night;
     if (this.signMat) this.signMat.emissive.setScalar(0.35 * night);
-    this.lampMat.color.copy(lerpC(new THREE.Color(0x504a40), new THREE.Color(0xffe0a0), night * 1.2));
+    this.lampMat?.color.copy(lerpC(new THREE.Color(0x504a40), new THREE.Color(0xffe0a0), night * 1.2));
     this.poolMat.opacity = 0.7 * night;
     return night;
   }

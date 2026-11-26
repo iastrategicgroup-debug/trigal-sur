@@ -139,6 +139,7 @@ export class Game {
       await fn();
     }
     this.cam.occlusion = (ax, az, bx, bz) => this.world.collision.raycast(ax, az, bx, bz);
+    this.pickups.resolver = (q) => { this.world.collision.resolve(q, 0.5); };
     this.ui.setPlaces(this.save.discovered.length, this.world.places.length);
     this.ui.setLoading(1, 'Listo');
     await new Promise((r) => setTimeout(r, 150));
@@ -386,6 +387,7 @@ export class Game {
       rob: (a) => { this.money = Math.max(0, this.money - a); },
       notify: (h) => this.ui.toast(h, 3),
     });
+    this.world.collision.resolve(this.player.pos, CONFIG.player.radius);
     this.input.endStep();
   }
 

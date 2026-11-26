@@ -71,6 +71,7 @@ export function signAtlas(): THREE.CanvasTexture {
 export function placeLots(map: CityMap, rnd: () => number): Lot[] {
   const lots: Lot[] = [];
   const occ = new Set<string>();
+  const placedRects: V2[][] = [];
   const OC = 1.5;
   const parks = map.areas.filter((a) => a.kind === 'park' || a.kind === 'pitch' || a.kind === 'parking' || a.kind === 'building');
   const lim = { w: map.half.w - 4, h: map.half.h - 4 };
@@ -116,11 +117,13 @@ export function placeLots(map: CityMap, rnd: () => number): Lot[] {
           if (!ok) continue;
           const cells = cellsOf(corners);
           if (cells.some((k) => occ.has(k))) continue;
+          if (placedRects.some((r) => Math.hypot(r[0]!.x - c.x, r[0]!.z - c.z) < 60 && rectsOverlap(r, corners))) continue;
           placed = { c, hd, corners, cells };
           break;
         }
         if (!placed) { acc = Math.min(acc, hw); continue; }
         const { c, hd, cells } = placed;
+        placedRects.push(placed.corners);
         cells.forEach((k) => occ.add(k));
         lots.push({ c, u, n, hw, hd, kind: commercial ? 'comercio' : rnd() < 0.08 ? 'baldio' : 'quinta', road });
         acc = 0;
@@ -128,6 +131,17 @@ export function placeLots(map: CityMap, rnd: () => number): Lot[] {
     }
   }
   return lots;
+}
+
+/** Separación de ejes (SAT) entre dos rectángulos (con 5 cm de tolerancia). */
+function rectsOverlap(a: V2[], b: V2[]): boolean {
+  for (const poly of [a, b]) for (let i = 0; i < 4; i++) {
+    const p = poly[i]!, q = poly[(i + 1) % 4]!;
+    const nx = -(q.z - p.z), nz = q.x - p.x, l = Math.hypot(nx, nz) || 1;
+    const pa = a.map((v) => (v.x * nx + v.z * nz) / l), pb = b.map((v) => (v.x * nx + v.z * nz) / l);
+    if (Math.max(...pa) <= Math.min(...pb) + 0.05 || Math.max(...pb) <= Math.min(...pa) + 0.05) return false;
+  }
+  return true;
 }
 
 export function rectCorners(c: V2, u: V2, n: V2, hw: number, hd: number): V2[] {
@@ -162,9 +176,10 @@ class LotFrame {
   }
 }
 
-export function buildLots(lots: Lot[], bank: GeoBank, rnd: () => number): BuildingsOut {
+export function buildLots(lots: Lot[], bankFor: (lot: Lot) => GeoBank, rnd: () => number): BuildingsOut {
   const out: BuildingsOut = { solids: [], wires: [], tanks: [], backyardTrees: [], plants: [], yardPalms: [], lots };
   for (const lot of lots) {
+    const bank = bankFor(lot);
     if (lot.kind === 'quinta') buildQuinta(lot, bank, rnd, out);
     else if (lot.kind === 'baldio') buildBaldio(lot, bank, rnd, out);
     else buildShop(lot, bank, rnd, out);
@@ -190,10 +205,13 @@ function addWindows(f: LotFrame, bank: GeoBank, rnd: () => number, a0: number, b
       // Alféizar y dintel con volumen (dan sombra real)
       const st = bank.get('stucco');
       const sc = col('#eeeae2');
-      const sa = ca + na * 0.07, sb = cb + nb * 0.07;
-      const [hA, hB] = Math.abs(ta) > 0.5 ? [0.82, 0.09] : [0.09, 0.82];
-      f.box(st, sa, sb, hA, hB, y0 - 0.1, y0 - 0.02, 3, sc);
-      f.box(st, sa, sb, hA * (Math.abs(ta) > 0.5 ? 0.98 : 1), hB * (Math.abs(ta) > 0.5 ? 1 : 0.98), y1 + 0.02, y1 + 0.14, 3, sc);
+      // Alféizar y dintel: cara frontal + cara superior (lo único visible), sobresalen 14 cm
+      for (const [ya, yb] of [[y0 - 0.1, y0 - 0.02], [y1 + 0.02, y1 + 0.14]] as const) {
+        const a0 = ca - ta * 0.82, b0 = cb - tb * 0.82, a1 = ca + ta * 0.82, b1 = cb + tb * 0.82;
+        const o = 0.14;
+        st.quad(f.v(a0 + na * o, ya, b0 + nb * o), f.v(a1 + na * o, ya, b1 + nb * o), f.v(a1 + na * o, yb, b1 + nb * o), f.v(a0 + na * o, yb, b0 + nb * o), [0, 0, 0.5, 0.05], sc);
+        st.quad(f.v(a0, yb, b0), f.v(a1, yb, b1), f.v(a1 + na * o, yb, b1 + nb * o), f.v(a0 + na * o, yb, b0 + nb * o), [0, 0, 0.5, 0.05], sc.clone().multiplyScalar(1.08));
+      }
     }
   }
 }
@@ -348,12 +366,15 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
   const gc = (gA0 + gA1) / 2;
   bank.get('sidewalk').quad(f.v(gc - 1.4, yG, bFront), f.v(gc + 1.4, yG, bFront), f.v(gc + 1.4, yG, front), f.v(gc - 1.4, yG, front), [0, 0, 1.4, (front - bFront) / 2], tmpC.setScalar(0.85));
   bank.get('pavers').quad(f.v(doorA - 0.6, yG + 0.005, bFront), f.v(doorA + 0.6, yG + 0.005, bFront), f.v(doorA + 0.6, yG + 0.005, front), f.v(doorA - 0.6, yG + 0.005, front), [0, 0, 1, (front - bFront) / 1.2], tmpC.setScalar(1));
-  // Plantas en el jardín
-  for (let k = 0; k < 2 + Math.floor(rnd() * 3); k++) {
-    const pa = (rnd() - 0.5) * (hw * 2 - 2), pb = bFront + 1 + rnd() * Math.max(0.5, front - bFront - 2);
-    if (Math.abs(pa - doorA) < 1 || Math.abs(pa - gc) < 1.8) continue;
-    out.plants.push({ x: f.x(pa, pb), z: f.z(pa, pb) });
+  // Plantas en el jardín (fuera de setos, porche, garaje, caminería y entrada de carro)
+  const plantSpots: [number, number][] = [];
+  for (let k = 0; k < 8 && plantSpots.length < 4; k++) {
+    const pa = (rnd() - 0.5) * (hw * 2 - 2.4), pb = bFront + 0.9 + rnd() * Math.max(0.3, front - bFront - 2.3);
+    if (Math.abs(pa - doorA) < 2.0 || Math.abs(pa - gc) < 2.2) continue;               // caminería, porche y garaje
+    if (plantSpots.some(([a, b]) => Math.hypot(a - pa, b - pb) < 1.4)) continue;
+    plantSpots.push([pa, pb]);
   }
+  for (const [pa, pb] of plantSpots) out.plants.push({ x: f.x(pa, pb), z: f.z(pa, pb) });
 
   // --- Cuerpo de la casa ---
   const houseCol = rnd() < 0.6 ? wallCol : col(STUCCO[Math.floor(rnd() * STUCCO.length)]!);
@@ -379,9 +400,9 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
   addWindows(f, bank, rnd, hA, bFront, hA, bBack, 1, 0, floors, FH);
   addWindows(f, bank, rnd, -hA, bBack, -hA, bFront, -1, 0, floors, FH);
   if (rnd() < 0.7) {
+    // Condensadora del aire (tipo split) en el suelo, pegada a la pared lateral cerca del fondo
     const sideA = rnd() < 0.5 ? hA : -hA;
-    const bb = bBack + 1.5 + rnd() * Math.max(0.5, bFront - bBack - 3);
-    f.box(bank.get('ac'), sideA + Math.sign(sideA) * 0.25, bb, 0.25, 0.35, 1.9, 2.35, 1, tmpC.setScalar(1));
+    f.box(bank.get('ac'), sideA + Math.sign(sideA) * 0.3, bBack + 0.6, 0.22, 0.38, 0.05, 0.65, 1, tmpC.setScalar(1));
   }
   // Porche: losa sobre la puerta con dos columnas
   const carport = rnd() < 0.5;
@@ -426,7 +447,7 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
     f.box(stucco, cA, (b0 + b1) / 2, cw + 0.1, (b1 - b0) / 2, 2.45, 2.6, 3, col('#e8e2d8'));
     for (const ca of [cA - cw, cA + cw]) f.box(stucco, ca, b1 - 0.15, 0.1, 0.1, 0, 2.45, 3, col('#e8e2d8'));
   }
-  if (rnd() < 0.25) { const pa = (gc > 0 ? -1 : 1) * (hw - 1.3), pb = front - 1.3; out.yardPalms.push({ x: f.x(pa, pb), z: f.z(pa, pb) }); }
+  if (rnd() < 0.25) { const pa = (gc > 0 ? -1 : 1) * (hw - 1.3), pb = front - 1.4; if (!plantSpots.some(([a, b]) => Math.hypot(a - pa, b - pb) < 1.6) && Math.abs(pa - doorA) > 2.2) out.yardPalms.push({ x: f.x(pa, pb), z: f.z(pa, pb) }); }
   const yard = bBack - (-hd);
   if (yard >= 5 && rnd() < 0.7) { const tb = (-hd + bBack) / 2; const ta = (rnd() - 0.5) * (hw - 2.5); out.backyardTrees.push({ x: f.x(ta, tb), z: f.z(ta, tb) }); }
 }
@@ -468,7 +489,7 @@ function buildShop(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsOut
   const si = Math.floor(rnd() * SIGN_COUNT);
   const u0 = (si % 2) * 0.5, v1 = 1 - Math.floor(si / 2) / 8, v0 = v1 - 1 / 8;
   const sw = Math.min(shopW, 6);
-  f.decal(bank.get('signs'), 0, front + 0.05, 1, 0, 0, 1, sw, 3.15, 3.15 + sw / 4, tmpC.setScalar(1), [u0, v0, u0 + 0.5, v1]);
+  f.decal(bank.get('signs'), 0, front + 0.05, 1, 0, 0, 1, sw, 3.1, 3.1 + Math.min(sw / 4, 0.85), tmpC.setScalar(1), [u0, v0, u0 + 0.5, v1]);
   if (floors === 2) addWindows(f, bank, rnd, -hw, front, hw, front, 0, 1, 1, FH, undefined, 1);
   addWindows(f, bank, rnd, hw, front, hw, back, 1, 0, floors, FH);
   if (rnd() < 0.5) out.tanks.push({ x: f.x(0, back + 2), y: y, z: f.z(0, back + 2), s: 1.1 });

@@ -123,6 +123,15 @@ export class CityMap {
     return false;
   }
 
+  /** ¿Está el punto sobre alguna calzada (sin contar aceras)? */
+  onCarriageway(x: number, z: number, margin = 0): boolean {
+    const C = CityMap.CELL;
+    for (const { road, i } of this.grid.get(`${Math.floor(x / C)},${Math.floor(z / C)}`) ?? []) {
+      if (distToSegment(x, z, road.pts[i]!, road.pts[i + 1]!).d < road.width / 2 + margin) return true;
+    }
+    return false;
+  }
+
   findArea(name: string): Area | undefined { return this.areas.find((a) => a.name.toLowerCase() === name.toLowerCase()); }
 }
 

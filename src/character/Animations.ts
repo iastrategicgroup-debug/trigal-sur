@@ -49,7 +49,7 @@ function gait(amp: number, knee: number, arm: number, lean: number, bob: number,
       thigh_L: [-L * amp, 0, 0], thigh_R: [-R * amp, 0, 0],
       shin_L: [kL, 0, 0], shin_R: [kR, 0, 0],
       foot_L: [L * amp * 0.3 - kL * 0.3, 0, 0], foot_R: [R * amp * 0.3 - kR * 0.3, 0, 0],
-      upperArm_L: [R * arm, 0, 0.08], upperArm_R: [L * arm, 0, -0.08],
+      upperArm_L: [R * arm, 0.12, -0.06], upperArm_R: [L * arm, -0.12, 0.06],
       foreArm_L: [-elbow - Math.max(0, R) * arm * 0.6, 0, 0], foreArm_R: [-elbow - Math.max(0, L) * arm * 0.6, 0, 0],
       spine: [lean + hunch * 0.35, S(ph) * 0.06, 0], chest: [hunch * 0.2, -S(ph) * 0.1, 0],
       hips: [0, -S(ph) * 0.08, 0],
@@ -65,8 +65,9 @@ export function buildClips(): Record<string, THREE.AnimationClip> {
     const b = S(t * PI2);
     return {
       chest: [b * 0.025, 0, 0], spine: [0.02, 0, 0], neck: [-0.02, S(t * PI2 * 0.5) * 0.08, 0],
-      upperArm_L: [0.02, 0, 0.1 + b * 0.01], upperArm_R: [0.02, 0, -0.1 - b * 0.01],
-      foreArm_L: [-0.12, 0, 0], foreArm_R: [-0.12, 0, 0], shin_L: [0.04, 0, 0], shin_R: [0.04, 0, 0],
+      upperArm_L: [0.04, 0.15, -0.09 + b * 0.01], upperArm_R: [0.04, -0.15, 0.09 - b * 0.01],
+      foreArm_L: [-0.22, 0, 0], foreArm_R: [-0.22, 0, 0], hand_L: [0, 0.4, 0], hand_R: [0, -0.4, 0],
+      shoulder_L: [0, 0, -0.04], shoulder_R: [0, 0, 0.04], shin_L: [0.04, 0, 0], shin_R: [0.04, 0, 0],
       _y: b * 0.004,
     };
   });

@@ -69,7 +69,7 @@ class SkinBuilder {
         const k = r.shape ? r.shape(a) : 1;                      // relieve muscular por ángulo
         const p = r.c.clone().addScaledVector(side, ca * r.rx * k).addScaledVector(front, sa * fz * k);
         const band = this.bandOf(r.color);
-        this.vert(p, (i / sides) * 2, SkinBuilder.vb(band, j / (rs.length - 1)), r.ao ? r.color.clone().multiplyScalar(r.ao) : r.color, r.w);
+        this.vert(p, (i / sides) * 0.5, SkinBuilder.vb(band, j / (rs.length - 1)), r.ao ? r.color.clone().multiplyScalar(r.ao) : r.color, r.w);
       }
     }
     const S = sides + 1;
@@ -79,7 +79,7 @@ class SkinBuilder {
     }
     const cap = (j: number, flip: boolean) => {
       const r = rs[j]!;
-      const c = this.vert(r.c, 0.5, SkinBuilder.vb(this.bandOf(r.color), 0.5), r.color, r.w);
+      const c = this.vert(r.c, 0.25, SkinBuilder.vb(this.bandOf(r.color), 0.5), r.color, r.w);
       for (let i = 0; i < sides; i++) {
         const a = base + j * S + i;
         if (flip) this.tri(g, c, a + 1, a); else this.tri(g, c, a, a + 1);
@@ -99,7 +99,7 @@ class SkinBuilder {
         const th = (i / cols) * Math.PI * 2;
         let y = Math.cos(ph) * r.y;
         if (flatBottom && y < -r.y * 0.4) y = -r.y * 0.4;
-        this.vert(new THREE.Vector3(c.x + Math.sin(ph) * Math.cos(th) * r.x, c.y + y, c.z + Math.sin(ph) * Math.sin(th) * r.z), i / cols, SkinBuilder.vb(this.bandOf(color), j / rows), color, w);
+        this.vert(new THREE.Vector3(c.x + Math.sin(ph) * Math.cos(th) * r.x, c.y + y, c.z + Math.sin(ph) * Math.sin(th) * r.z), (i / cols) * 0.5, SkinBuilder.vb(this.bandOf(color), j / rows), color, w);
       }
     }
     const C = cols + 1;
@@ -117,7 +117,7 @@ class SkinBuilder {
       [[1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]], [[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]],
     ];
     for (const f of faces) {
-      const ids = f.map(([x, y, z]) => this.vert(P(x, y, z), 0.5, SkinBuilder.vb(this.bandOf(color), 0.5), color, w));
+      const ids = f.map(([x, y, z]) => this.vert(P(x, y, z), 0.25, SkinBuilder.vb(this.bandOf(color), 0.5), color, w));
       this.tri(0, ids[0]!, ids[1]!, ids[2]!); this.tri(0, ids[0]!, ids[2]!, ids[3]!);
     }
   }
@@ -133,6 +133,14 @@ class SkinBuilder {
     g.addGroup(0, this.idx[0].length, 0);
     g.addGroup(this.idx[0].length, this.idx[1].length, 1);
     g.computeVertexNormals();
+    // Iluminación horneada: lo que mira hacia abajo (bajo el pecho, los glúteos, los brazos) se oscurece;
+    // lo que mira arriba recibe un poco más de luz. Solo en el grupo del cuerpo (la cara tiene su textura pintada).
+    const n = g.attributes.normal as THREE.BufferAttribute, c = g.attributes.color as THREE.BufferAttribute;
+    const bodyVerts = new Set(this.idx[0]);
+    for (const i of bodyVerts) {
+      const k = 0.72 + 0.36 * (n.getY(i) * 0.5 + 0.5);
+      c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
+    }
     return g;
   }
 }
@@ -148,8 +156,8 @@ export function joints(p: HumanParams) {
     root: v(0, 0), hips: v(0, 0.53), spine: v(0, 0.6), chest: v(0, 0.72), neck: v(0, 0.835), head: v(0, 0.875),
     shoulder_L: v(H * 0.04, 0.8), upperArm_L: v(sw, 0.81), foreArm_L: v(sw + H * 0.02, 0.625), hand_L: v(sw + H * 0.032, 0.475),
     shoulder_R: v(-H * 0.04, 0.8), upperArm_R: v(-sw, 0.81), foreArm_R: v(-sw - H * 0.02, 0.625), hand_R: v(-sw - H * 0.032, 0.475),
-    thigh_L: v(hipX, 0.52), shin_L: v(hipX * 0.92, 0.285), foot_L: v(hipX * 0.9, 0.048),
-    thigh_R: v(-hipX, 0.52), shin_R: v(-hipX * 0.92, 0.285), foot_R: v(-hipX * 0.9, 0.048),
+    thigh_L: v(hipX, 0.52), shin_L: v(hipX * 0.78, 0.285), foot_L: v(hipX * 0.8, 0.048),
+    thigh_R: v(-hipX, 0.52), shin_R: v(-hipX * 0.78, 0.285), foot_R: v(-hipX * 0.8, 0.048),
   };
 }
 
@@ -163,6 +171,7 @@ const PARENT: Record<BoneName, BoneName | null> = {
 /** Campana angular centrada en `c` (radianes), ancho `w`. */
 const bump = (a: number, c: number, w: number) => { let d = a - c; d = Math.atan2(Math.sin(d), Math.cos(d)); return Math.exp(-(d * d) / (w * w)); };
 const FRONT = Math.PI / 2, BACK = -Math.PI / 2;
+const WHITE = new THREE.Color(1, 1, 1);
 const smooth = (a: number, b: number, t: number) => { const x = Math.min(1, Math.max(0, (t - a) / (b - a))); return x * x * (3 - 2 * x); };
 
 /** Construye el personaje: SkinnedMesh con esqueleto, materiales y textura del rostro. */
@@ -179,14 +188,24 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   B.bandOf = (c) => c === skin ? 0 : c === hairC ? 4 : c === shirt ? (p.shirt.pattern === 'microcuadro' ? 3 : 1) : c === pants ? (p.pants.type === 'jean' ? 2 : 1) : 1;
 
   // ---------- Torso: pelvis -> cintura -> barriga -> pecho -> hombros ----------
-  const tor = (y: number, rx: number, rz: number, dz: number, w: W, c: THREE.Color) => ({ c: new THREE.Vector3(0, y * H, 0), rx: rx * H, rz: rz * H, dz: dz * H, w, color: c, shape: torsoShape(y) });
+  /** Columna en S: lordosis lumbar (cintura hacia delante), cifosis torácica (espalda alta hacia atrás). */
+  const spineZ = (y: number) => (0.012 * Math.sin(((y - 0.5) / 0.34) * Math.PI) - 0.006 * smooth(0.72, 0.83, y)) * H;
+  const tor = (y: number, rx: number, rz: number, dz: number, w: W, c: THREE.Color) => ({ c: new THREE.Vector3(0, y * H, spineZ(y)), rx: rx * H, rz: rz * H, dz: dz * H, w, color: c, shape: torsoShape(y) });
   const mm = p.muscle, ff = p.fat;
   /** Relieve del torso según la altura: pectorales (2 lóbulos y surco del esternón), omóplatos, oblicuos, abdomen. */
   function torsoShape(y: number): (a: number) => number {
     const pecs = p.female ? 0 : smooth(0.68, 0.72, y) * (1 - smooth(0.775, 0.8, y));
     const blades = smooth(0.7, 0.75, y) * (1 - smooth(0.79, 0.81, y));
     const waist = smooth(0.55, 0.6, y) * (1 - smooth(0.66, 0.7, y));
+    const glutes = smooth(0.44, 0.48, y) * (1 - smooth(0.53, 0.57, y));
+    const lats = smooth(0.66, 0.7, y) * (1 - smooth(0.76, 0.79, y));
+    const trap = smooth(0.8, 0.815, y);
     return (a: number) => 1
+      + glutes * (0.1 + ff * 0.06 + (p.female ? 0.06 : 0)) * (bump(a, BACK - 0.45, 0.4) + bump(a, BACK + 0.45, 0.4))   // glúteos
+      - glutes * 0.04 * bump(a, BACK, 0.1)
+      + lats * (0.03 + mm * 0.07) * (bump(a, BACK - 1.1, 0.45) + bump(a, BACK + 1.1, 0.45))                           // dorsales
+      + trap * (0.08 + mm * 0.1) * (bump(a, BACK - 0.6, 0.5) + bump(a, BACK + 0.6, 0.5))                              // trapecio
+      - trap * 0.06 * bump(a, FRONT, 0.6)                                                                             // clavículas hundidas adelante
       + pecs * (0.05 + mm * 0.12) * (bump(a, FRONT - 0.5, 0.42) + bump(a, FRONT + 0.5, 0.42))
       - pecs * mm * 0.05 * bump(a, FRONT, 0.15)
       + blades * (0.04 + mm * 0.06) * (bump(a, BACK - 0.55, 0.4) + bump(a, BACK + 0.55, 0.4))
@@ -208,15 +227,16 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     tor(0.665, waistRx + 0.006 + m * 0.008, 0.066 + f * 0.016, belly * 0.6 + (fem ? 0.01 : 0), [['spine', 0.5], ['chest', 0.5]], shirt),
     tor(0.72, chestRx, 0.07 + m * 0.012 + f * 0.01, (fem ? 0.03 : 0.006) + m * 0.012, [['chest', 1]], shirt),
     tor(0.77, chestRx + 0.008 + m * 0.012, 0.066 + m * 0.01, (fem ? 0.022 : 0.004) + m * 0.01, [['chest', 1]], shirt),
-    tor(0.795, J.sw / H * 0.84, 0.068 + m * 0.012, 0, [['chest', 0.8], ['shoulder_L', 0.1], ['shoulder_R', 0.1]], shirt),
-    tor(0.818, J.sw / H * 0.58, 0.058 + m * 0.008, 0, [['chest', 0.85], ['shoulder_L', 0.075], ['shoulder_R', 0.075]], shirt),
+    tor(0.795, J.sw / H * 0.9, 0.068 + m * 0.012, 0, [['chest', 0.8], ['shoulder_L', 0.1], ['shoulder_R', 0.1]], shirt),
+    tor(0.818, J.sw / H * 0.68, 0.058 + m * 0.008, 0, [['chest', 0.85], ['shoulder_L', 0.075], ['shoulder_R', 0.075]], shirt),
     tor(0.832, 0.05 + m * 0.01, 0.042, 0, [['chest', 0.6], ['neck', 0.4]], shirt),
   ];
   B.rings(torsoRings, 16, true, false);
   // Cuello
-  const neckR = (0.036 + m * 0.01 + f * 0.008) * H;
+  const neckR = (0.041 + m * 0.012 + f * 0.01) * H;
   B.rings([
-    { c: new THREE.Vector3(0, 0.82 * H, -0.004 * H), rx: neckR, rz: neckR * 0.95, w: [['neck', 1]], color: skin, ao: 0.7 },
+    { c: new THREE.Vector3(0, 0.82 * H, -0.006 * H), rx: neckR * 1.08, rz: neckR * 0.98, w: [['neck', 1]], color: skin, ao: 0.7,
+      shape: (a: number) => 1 + 0.08 * (bump(a, FRONT - 0.7, 0.35) + bump(a, FRONT + 0.7, 0.35)) - 0.05 * bump(a, FRONT, 0.2) }, // esternocleidomastoideo
     { c: new THREE.Vector3(0, 0.875 * H, 0), rx: neckR * 0.92, rz: neckR * 0.9, w: [['neck', 0.4], ['head', 0.6]], color: skin },
   ], 8);
   // Cuello de la camisa
@@ -224,6 +244,15 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     { c: new THREE.Vector3(0, 0.828 * H, -0.004 * H), rx: neckR * 1.5, rz: neckR * 1.45, w: [['chest', 0.6], ['neck', 0.4]], color: shirt },
     { c: new THREE.Vector3(0, 0.852 * H, -0.006 * H), rx: neckR * 1.18, rz: neckR * 1.15, w: [['neck', 1]], color: shirt.clone().multiplyScalar(0.92) },
   ], 10);
+  // Cinturón con hebilla
+  if ((p.pants.type === 'jean' || p.pants.type === 'short') && !p.female) {
+    const belt = new THREE.Color(0x1c1612);
+    B.rings([
+      { c: new THREE.Vector3(0, 0.5 * H, spineZ(0.5) - 0.0), rx: hipRx * H * 1.0, rz: (0.068 + f * 0.016) * H, w: [['hips', 1]], color: belt },
+      { c: new THREE.Vector3(0, 0.517 * H, spineZ(0.517)), rx: hipRx * H * 1.0, rz: (0.068 + f * 0.017) * H, w: [['hips', 1]], color: belt },
+    ], 16);
+    if (p.shirt.type === 'franelilla') B.box(new THREE.Vector3(0, 0.508 * H, spineZ(0.508) + (0.07 + f * 0.017) * H), new THREE.Vector3(0.016 * H, 0.009 * H, 0.003 * H), new THREE.Color(0xb8a060), [['hips', 1]]);
+  }
   // Línea de botones (cuerpo) — pequeñas cajas
   if (p.shirt.buttons) for (let k = 0; k < 6; k++) {
     const y = 0.57 + k * 0.042;
@@ -244,8 +273,8 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
     const arm: Parameters<SkinBuilder['rings']>[0] = [];
     // hombro (deltoides)
     const armDir = new THREE.Vector3().subVectors(up, el).normalize(); // del codo al hombro
-    arm.push({ c: up.clone().addScaledVector(armDir, 0.028 * H), rx: rUp * 0.85, rz: rUp * 0.9, w: [[sh, 0.5], [ua, 0.5]], color: p.shirt.type === 'franelilla' ? skin : shirt, ao: 0.8 });
-    arm.push({ c: up.clone().add(new THREE.Vector3(0, 0.004 * H, 0)), rx: rUp * 1.08, rz: rUp * 1.12, w: [[sh, 0.3], [ua, 0.7]], color: p.shirt.type === 'franelilla' ? skin : shirt });
+    arm.push({ c: up.clone().addScaledVector(armDir, 0.016 * H).add(new THREE.Vector3(-sg * 0.012 * H, 0, 0)), rx: rUp * 0.7, rz: rUp * 0.85, w: [[sh, 0.5], [ua, 0.5]], color: p.shirt.type === 'franelilla' ? skin : shirt, ao: 0.8 });
+    arm.push({ c: up.clone().add(new THREE.Vector3(0, -0.006 * H, 0)), rx: rUp * 1.12, rz: rUp * 1.15, w: [[sh, 0.3], [ua, 0.7]], color: p.shirt.type === 'franelilla' ? skin : shirt });
     for (let k = 0; k <= N; k++) {
       const t = k / N;
       const c = up.clone().lerp(el, t);
@@ -386,8 +415,8 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         const P = new THREE.Vector3(hc.x + x * hrx, hc.y + y * hry, hc.z + z * hrz);
         // UV frontal: proyección plana; la parte de atrás va a una esquina lisa (piel)
         const front = z > -0.15;
-        const u = front ? 0.5 + ux * 0.5 : 0.02, v = front ? 0.5 + uy * 0.5 : 0.02;
-        B.vert(P, u, v, skin, [['head', 1]]);
+        const fu = front ? 0.5 + ux * 0.5 : 0.02, fv = front ? 0.5 + uy * 0.5 : 0.02;
+        B.vert(P, 0.5 + fu * 0.5, (64 + fv * 256) / 320, WHITE, [['head', 1]]);
       }
     }
     const C = cols + 1;
@@ -418,7 +447,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         y += lift;
         const P = new THREE.Vector3(hc.x + x * hrx * thick, hc.y + y * hry * (thick - 0.01) + headH * 0.02, hc.z + z * hrz * thick);
         keep.push(y > hairline - (z < 0 ? 0.55 : 0) || z < -0.2);
-        B.vert(P, (i / cols) * 3, SkinBuilder.vb(4, j / rows), hairC, [['head', 1]]);
+        B.vert(P, (i / cols) * 0.5, SkinBuilder.vb(4, j / rows), hairC, [['head', 1]]);
       }
     }
     const C = cols + 1;
@@ -473,13 +502,21 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   }
   const skeleton = new THREE.Skeleton(BONES.map((n) => bones[n]));
   const geo = B.geometry();
-  const bodyMat = new THREE.MeshPhongMaterial({ vertexColors: true, map: fabric, shininess: 14, specular: new THREE.Color(0x1a1a1a) });
-  const faceMat = new THREE.MeshPhongMaterial({ map: faceTexture(p), shininess: 22, specular: new THREE.Color(0x262220) });
-  const mesh = new THREE.SkinnedMesh(geo, [bodyMat, faceMat]);
+  geo.clearGroups();
+  const atlas = document.createElement('canvas'); atlas.width = 512; atlas.height = 320;
+  const ag = atlas.getContext('2d')!;
+  ag.drawImage(fabric.image as HTMLCanvasElement, 0, 0, 256, 320);
+  ag.drawImage(faceTexture(p).image as HTMLCanvasElement, 256, 0, 256, 256);
+  const atlasTex = new THREE.CanvasTexture(atlas);
+  atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 4;
+  const mat = new THREE.MeshPhongMaterial({ vertexColors: true, map: atlasTex, shininess: 16, specular: new THREE.Color(0x1e1c1a) });
+  const mesh = new THREE.SkinnedMesh(geo, mat);
   mesh.add(bones.root);
   mesh.bind(skeleton);
   mesh.castShadow = true;
-  mesh.frustumCulled = false;
+  // Esfera envolvente generosa (cubre poses de golpe, caída y muerte) => se puede descartar fuera de cámara
+  mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, H * 0.5, 0), H * 0.85);
+  mesh.frustumCulled = true;
   return { mesh, bones, height: H };
 }
 

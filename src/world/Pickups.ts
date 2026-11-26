@@ -35,7 +35,11 @@ export class Pickups {
     };
   }
 
+  /** Si se define, reubica cada objeto fuera de muros y edificios (para que siempre se pueda recoger). */
+  resolver: ((p: { x: number; z: number }) => void) | null = null;
+
   spawn(kind: PickupKind, amount: number, x: number, y: number, z: number, ttl = Infinity): void {
+    if (this.resolver) { const q = { x, z }; this.resolver(q); x = q.x; z = q.z; }
     const o = new THREE.Group();
     const m = new THREE.Mesh(this.geos[kind], this.mats[kind]);
     m.castShadow = true;
