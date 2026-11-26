@@ -1,0 +1,60 @@
+:root {
+  --ink: #fff7e8;
+  --shadow: 0 2px 0 #000, 0 0 6px rgba(0,0,0,.6);
+  --accent: #ffb347;
+  --accent-2: #e85d2a;
+  --panel: rgba(20, 14, 10, .78);
+  --health: #5fd068;
+  --shield: #4fb3ff;
+  --stamina: #ffd24a;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1a120c; color: var(--ink); }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+.screen { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; pointer-events: auto; padding: 16px; }
+.screen.on { display: flex; }
+.dim { background: radial-gradient(ellipse at center, rgba(30,15,5,.35), rgba(10,5,0,.85)); }
+h1.logo { font-size: clamp(40px, 9vw, 96px); margin: 0; letter-spacing: 2px; font-weight: 900; font-style: italic;
+  color: var(--accent); text-shadow: 4px 4px 0 #000, 0 0 24px rgba(255,140,40,.45); transform: skew(-6deg); text-align: center; }
+.sub { margin: 6px 0 28px; font-size: clamp(13px, 2.4vw, 18px); text-shadow: var(--shadow); opacity: .9; text-align: center; }
+.menu { display: flex; flex-direction: column; gap: 10px; min-width: min(280px, 90vw); }
+.menu button { font: inherit; font-size: 20px; font-weight: 800; padding: 10px 18px; border: 2px solid #000; background: var(--panel);
+  color: var(--ink); text-align: left; cursor: pointer; text-shadow: var(--shadow); transition: transform .08s, background .08s; }
+.menu button:hover, .menu button:focus-visible { background: var(--accent-2); transform: translateX(6px); outline: none; }
+.panel { background: var(--panel); border: 2px solid #000; padding: 18px 22px; max-width: min(520px, 100%); width: 100%; }
+.panel h2 { margin: 0 0 12px; color: var(--accent); }
+.panel table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.panel td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.panel td:first-child { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.panel label { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; }
+.loading-bar { width: min(420px, 80vw); height: 14px; border: 2px solid #000; background: rgba(0,0,0,.5); margin-top: 18px; }
+.loading-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .15s; }
+.loading-label { margin-top: 8px; font-size: 14px; text-shadow: var(--shadow); }
+.attrib { position: absolute; right: 6px; bottom: 4px; font-size: 11px; opacity: .85; text-shadow: var(--shadow); pointer-events: auto; }
+.attrib a { color: var(--ink); }
+/* HUD */
+.hud { position: absolute; inset: 0; display: none; }
+.hud.on { display: block; }
+.hud-tr { position: absolute; top: 14px; right: 16px; text-align: right; }
+.clock { font-size: 30px; font-weight: 900; text-shadow: var(--shadow); letter-spacing: 1px; }
+.bars { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; margin-top: 6px; }
+.bar { width: 160px; height: 10px; border: 2px solid #000; background: rgba(0,0,0,.55); }
+.bar > div { height: 100%; transition: width .12s; }
+.bar.health > div { background: var(--health); }
+.bar.shield > div { background: var(--shield); }
+.bar.stamina > div { background: var(--stamina); }
+.hint { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); font-size: 18px; font-weight: 800; text-shadow: var(--shadow); }
+.street { position: absolute; right: 16px; bottom: 26px; font-size: 22px; font-weight: 900; font-style: italic; color: var(--accent); text-shadow: var(--shadow); }
+.minimap { position: absolute; left: 16px; bottom: 16px; width: 150px; height: 150px; border-radius: 50%; border: 3px solid #000;
+  background: rgba(30,30,30,.6); overflow: hidden; box-shadow: 0 0 0 2px rgba(255,255,255,.15); }
+.debug { position: absolute; top: 8px; left: 8px; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; background: rgba(0,0,0,.6);
+  padding: 6px 8px; white-space: pre; display: none; }
+.debug.on { display: block; }
+@media (max-width: 600px) {
+  .minimap { width: 110px; height: 110px; }
+  .bar { width: 110px; }
+  .clock { font-size: 22px; }
+  .street { font-size: 16px; bottom: 140px; }
+}

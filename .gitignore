@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+# Foto de referencia y derivados: solo locales, nunca al repositorio
+assets/referencia/
+assets/derivados/
+public/derivados/
