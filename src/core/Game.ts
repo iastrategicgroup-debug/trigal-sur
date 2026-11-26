@@ -124,7 +124,7 @@ export class Game {
         this.scene.add(this.player.object, this.pickups.group);
         this.restorePosition(); this.seedPickups();
       }],
-      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.scene.add(this.npcs.group); }],
+      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, 55); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
     ];
     for (let i = 0; i < tasks.length; i++) {
@@ -270,9 +270,9 @@ export class Game {
     if ((this.input.wasPressed('Mouse0') || this.input.wasPressed('KeyQ')) && this.punchCd <= 0 && this.grounded) {
       if (aiming) this.player.facing = this.cam.yaw + Math.PI;
       this.combo = (this.combo + 1) % 3;
-      this.action = 'golpe'; this.actionT = 0.4; this.punchCd = 0.38;
-      this.joan.play(this.combo % 2 ? 'punchL' : 'punchR', 0.06, true);
-      this.pendingHit = 0.14; // el golpe conecta cuando el brazo se extiende
+      this.action = 'golpe'; this.actionT = this.combo === 2 ? 0.5 : 0.4; this.punchCd = this.combo === 2 ? 0.5 : 0.36;
+      this.joan.play(['punchL', 'punchR', 'hookR'][this.combo]!, 0.06, true);
+      this.pendingHit = this.combo === 2 ? 0.17 : 0.13; // conecta en el impacto // el golpe conecta cuando el brazo se extiende
     }
     if (this.pendingHit >= 0 && (this.pendingHit -= dt) < 0) {
       const dmg = this.combo === 2 ? 34 : 20;

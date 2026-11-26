@@ -38,8 +38,8 @@ interface Npc {
   greeted: boolean;
 }
 
-const MAX_NPC = 40;
-const SPAWN_MIN = 25, SPAWN_MAX = 90, DESPAWN = 130;
+const MAX_NPC = 70;
+const SPAWN_MIN = 14, SPAWN_MAX = 85, DESPAWN = 120;
 
 /**
  * IA de peatones (máquina de estados por NPC, decisiones cada paso fijo):
@@ -69,14 +69,18 @@ export class NpcManager {
 
   get count(): number { return this.npcs.length; }
 
-  private spawn(player: THREE.Vector3): void {
+  /** Llena las aceras de una vez (al cargar) para que haya gente desde el primer momento. */
+  populate(player: THREE.Vector3, n: number): void { for (let i = 0; i < n * 3 && this.npcs.length < n; i++) this.spawn(player, 4); }
+
+  private spawn(player: THREE.Vector3, minDist = SPAWN_MIN): void {
     // Punto de acera a 25–90 m del jugador
     for (let tries = 0; tries < 12; tries++) {
       const wp = this.walkPaths[Math.floor(this.rnd() * this.walkPaths.length)]!;
       const pi = Math.floor(this.rnd() * wp.pts.length);
       const p = wp.pts[pi]!;
       const d = Math.hypot(p.x - player.x, p.z - player.z);
-      if (d < SPAWN_MIN || d > SPAWN_MAX) continue;
+      if (d < minDist || d > SPAWN_MAX) continue;
+      if (this.npcs.some((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 1.2)) continue; // sin encimarse
       if (Math.abs(p.x) > this.world.map.half.w - 5 || Math.abs(p.z) > this.world.map.half.h - 5) continue;
       const kind = randomArchetype(this.rnd);
       const avatar = new Avatar(npcParams(kind, Math.floor(this.rnd() * 1e9)));
@@ -136,7 +140,7 @@ export class NpcManager {
   update(dt: number, player: PlayerCtx): void {
     this.spawnTimer -= dt;
     const alive = this.npcs.filter((n) => n.state !== 'muerto').length;
-    if (this.spawnTimer <= 0 && alive < MAX_NPC) { this.spawn(player.pos); this.spawnTimer = 0.25; }
+    if (this.spawnTimer <= 0 && alive < MAX_NPC) { this.spawn(player.pos); this.spawn(player.pos); this.spawnTimer = 0.1; }
 
     for (const n of [...this.npcs]) {
       const toP = new THREE.Vector3().subVectors(player.pos, n.pos);
@@ -232,7 +236,7 @@ export class NpcManager {
           if (d < 0.6 && d > 1e-4) { n.pos.x += (dx / d) * (0.6 - d) * 0.5; n.pos.z += (dz / d) * (0.6 - d) * 0.5; }
         }
         // Animación (los golpes de un solo disparo terminan antes de volver al ciclo)
-        const oneShot = ['punchR', 'punchL', 'hit', 'wave'].includes(n.avatar.currentName) && !n.avatar.finished;
+        const oneShot = ['punchR', 'punchL', 'hookR', 'hit', 'wave'].includes(n.avatar.currentName) && !n.avatar.finished;
         if (!oneShot) n.avatar.play(anim);
         n.avatar.setGaitSpeed(animSpeed);
       }

@@ -224,7 +224,7 @@ export class CityWorld {
   }
 
   private collectProps(rnd: () => number, backyard: V2[], tanks: PropsInput['tanks']): PropsInput {
-    const palms: V2[] = [], mangos: V2[] = [...backyard], samans: V2[] = [], posts: PropsInput['posts'] = [];
+    const palms: V2[] = [], mangos: V2[] = [], samans: V2[] = [], posts: PropsInput['posts'] = [];
     const occupied = (p: V2, m: number) => this.map.onRoadCorridor(p.x, p.z, -m) || this.collision.raycast(p.x - 0.5, p.z, p.x + 0.5, p.z) < 1;
     const inLimits = (p: V2) => Math.abs(p.x) < this.map.half.w - 3 && Math.abs(p.z) < this.map.half.h - 3;
     for (const road of this.map.roads) {
@@ -271,7 +271,7 @@ export class CityWorld {
     }
     void occupied;
     this.stats.trees = mangos.length + samans.length;
-    return { palms, mangos, samans, posts, tanks, benches: this.benches, plants: [] };
+    return { palms, mangos, samans, posts, tanks, benches: this.benches, plants: [], smallTrees: backyard };
   }
 
   /** Charcos de luz bajo los faroles (decal aditivo), visibles de noche. */

@@ -32,7 +32,8 @@ function rebuild(): void {
   } else {
     const a = new Avatar(joan); scene.add(a.object); avatars.push(a);
   }
-  avatars.forEach((a) => a.play(anim, 0));
+  const ft = params.get('t');
+  avatars.forEach((a) => (ft !== null ? a.freeze(anim, Number(ft)) : a.play(anim, 0)));
 }
 
 let anim = params.get('anim') ?? 'idle';

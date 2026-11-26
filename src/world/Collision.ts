@@ -105,6 +105,13 @@ export class Collision {
         const t = segIntersect(ax, az, bx, bz, e.ax, e.az, e.bx, e.bz);
         if (t !== null && t < tMin) tMin = t;
       }
+      // Troncos y postes (círculos)
+      for (const c of this.circles.get(k) ?? []) {
+        const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+        if (L2 < 1e-9) continue;
+        const t = Math.max(0, Math.min(1, ((c.x - ax) * dx + (c.z - az) * dz) / L2));
+        if (Math.hypot(ax + dx * t - c.x, az + dz * t - c.z) < c.r + 0.15 && t < tMin) tMin = Math.max(0, t - (c.r + 0.15) / Math.sqrt(L2));
+      }
     });
     return tMin;
   }

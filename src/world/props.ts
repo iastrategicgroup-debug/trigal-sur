@@ -168,6 +168,7 @@ export interface PropsInput {
   tanks: { x: number; y: number; z: number; s: number }[];
   benches: { p: V2; ry: number }[];
   plants: V2[];
+  smallTrees?: V2[];
 }
 
 export interface PropsOut {
@@ -201,6 +202,7 @@ export function buildProps(input: PropsInput, rnd: () => number): PropsOut {
   const trees = [
     ...input.mangos.map((p) => ({ x: p.x, z: p.z, s: 0.85 + rnd() * 0.35, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.06 })),
     ...input.samans.map((p) => ({ x: p.x, z: p.z, s: 1.5 + rnd() * 0.4, sy: 0.75, ry: rnd() * 6.28 })),
+    ...(input.smallTrees ?? []).map((p) => ({ x: p.x, z: p.z, s: 0.55 + rnd() * 0.15, ry: rnd() * 6.28 })),
   ];
   for (let v = 0; v < VAR; v++) {
     const g = broadleafGeometries(200 + v);

@@ -25,7 +25,7 @@ export class Avatar {
     this.mixer = new THREE.AnimationMixer(this.mesh);
     for (const [name, c] of Object.entries(CLIPS)) {
       const a = this.mixer.clipAction(c);
-      if (['jump', 'land', 'punchR', 'punchL', 'hit', 'death', 'wave'].includes(name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+      if (['jump', 'land', 'punchR', 'punchL', 'hookR', 'hit', 'death', 'wave'].includes(name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
       this.actions.set(name, a);
     }
     this.play('idle');
@@ -56,6 +56,18 @@ export class Avatar {
   }
 
   update(dt: number): void { this.mixer.update(dt); }
+
+  /** Congela la animación `name` en la fracción `t` (0..1) — para el visor. */
+  freeze(name: string, t: number): void {
+    const a = this.actions.get(name);
+    if (!a) return;
+    this.mixer.stopAllAction();
+    a.reset().play();
+    a.time = t * a.getClip().duration;
+    a.paused = true;
+    this.mixer.update(0);
+    this.current = a; this.currentName = name;
+  }
 
   dispose(): void {
     this.mixer.stopAllAction();

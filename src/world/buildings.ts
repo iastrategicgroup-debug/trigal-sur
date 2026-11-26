@@ -323,9 +323,10 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
   }
   // Muros laterales y de fondo (siempre; los linderos en Valencia se cierran)
   const SH = Math.max(2.4, WH);
-  f.wall(stucco, hw, front, hw, -hd, 0, SH, 3, fenceDark, fenceCol);
-  f.wall(stucco, -hw, -hd, -hw, front, 0, SH, 3, fenceDark, fenceCol);
-  f.wall(stucco, hw, -hd, -hw, -hd, 0, SH, 3, fenceDark, fenceCol);
+  const iw = hw - 0.05, id = -hd + 0.05;
+  f.wall(stucco, iw, front, iw, id, 0, SH, 3, fenceDark, fenceCol);
+  f.wall(stucco, -iw, id, -iw, front, 0, SH, 3, fenceDark, fenceCol);
+  f.wall(stucco, iw, id, -iw, id, 0, SH, 3, fenceDark, fenceCol);
   if (style === 'muro' && rnd() < 0.6) {
     const P = [[-hw, front], [hw, front], [hw, -hd], [-hw, -hd], [-hw, front]] as const;
     for (let k = 0; k < 4; k++) for (const dy of [0.25, 0.45, 0.65]) {
@@ -381,7 +382,8 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
     f.box(bank.get('ac'), sideA + Math.sign(sideA) * 0.25, bb, 0.25, 0.35, 1.9, 2.35, 1, tmpC.setScalar(1));
   }
   // Porche: losa sobre la puerta con dos columnas
-  if (style !== 'muro' && rnd() < 0.7) {
+  const carport = rnd() < 0.5;
+  if (style !== 'muro' && rnd() < 0.7 && (!carport || Math.abs(doorA - gc) > 1.6 + 1.9)) {
     const pw = 1.6;
     f.box(stucco, doorA, bFront + 1.1, pw, 1.1, 2.55, 2.7, 3, col('#ece6dc'));
     for (const ca of [doorA - pw + 0.12, doorA + pw - 0.12]) f.box(stucco, ca, bFront + 2.05, 0.1, 0.1, 0, 2.55, 3, col('#f2eee6'));
@@ -416,13 +418,14 @@ function buildQuinta(lot: Lot, bank: GeoBank, rnd: () => number, out: BuildingsO
     out.tanks.push({ x: f.x(ta, tb), y: H, z: f.z(ta, tb), s: 0.9 + rnd() * 0.3 });
   }
   // Estacionamiento techado
-  if (rnd() < 0.5) {
+  if (carport) {
     const cA = gc, cw = 1.7;
     const b0 = bFront, b1 = Math.min(hd - 0.5, bFront + 5);
     f.box(stucco, cA, (b0 + b1) / 2, cw + 0.1, (b1 - b0) / 2, 2.45, 2.6, 3, col('#e8e2d8'));
     for (const ca of [cA - cw, cA + cw]) f.box(stucco, ca, b1 - 0.15, 0.1, 0.1, 0, 2.45, 3, col('#e8e2d8'));
   }
-  if (rnd() < 0.6) out.backyardTrees.push({ x: f.x((rnd() - 0.5) * hw, -hd + 1.5), z: f.z((rnd() - 0.5) * hw, -hd + 1.5) });
+  const yard = bBack - (-hd);
+  if (yard >= 5 && rnd() < 0.7) { const tb = (-hd + bBack) / 2; const ta = (rnd() - 0.5) * (hw - 2.5); out.backyardTrees.push({ x: f.x(ta, tb), z: f.z(ta, tb) }); }
 }
 
 function capTop(f: LotFrame, g: GeoBuilder, a0: number, a1: number, b: number, y: number, c: THREE.Color): void {

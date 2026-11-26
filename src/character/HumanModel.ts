@@ -34,6 +34,10 @@ type W = [BoneName, number][];
 class SkinBuilder {
   pos: number[] = []; uv: number[] = []; col: number[] = []; si: number[] = []; sw: number[] = [];
   idx: [number[], number[]] = [[], []];
+  /** Franja de tela según el color (piel, algodón, jean, microcuadro, cabello). */
+  bandOf: (c: THREE.Color) => number = () => 1;
+  /** v dentro de la franja `band` (5 franjas en la textura de telas). */
+  static vb(band: number, t: number): number { return (band + 0.08 + 0.84 * Math.min(1, Math.max(0, t))) / 5; }
 
   vert(p: THREE.Vector3, u: number, v: number, c: THREE.Color, w: W): number {
     this.pos.push(p.x, p.y, p.z); this.uv.push(u, v); this.col.push(c.r, c.g, c.b);
@@ -48,7 +52,7 @@ class SkinBuilder {
    * Tubo de anillos elípticos. Cada anillo: centro, radios (rx a lo largo de `side`, rz a lo largo de `front`), pesos y color.
    * `axis` define la dirección del tubo; `front` la referencia "hacia delante" (+Z).
    */
-  rings(rs: { c: THREE.Vector3; rx: number; rz: number; w: W; color: THREE.Color; dz?: number; shape?: (a: number) => number }[], sides: number, capStart = false, capEnd = false, g: 0 | 1 = 0): void {
+  rings(rs: { c: THREE.Vector3; rx: number; rz: number; w: W; color: THREE.Color; dz?: number; shape?: (a: number) => number; ao?: number }[], sides: number, capStart = false, capEnd = false, g: 0 | 1 = 0): void {
     const base = this.pos.length / 3;
     for (let j = 0; j < rs.length; j++) {
       const r = rs[j]!;
@@ -64,7 +68,8 @@ class SkinBuilder {
         const fz = sa > 0 ? r.rz + (r.dz ?? 0) * sa * sa : r.rz; // barriga/pecho hacia delante
         const k = r.shape ? r.shape(a) : 1;                      // relieve muscular por ángulo
         const p = r.c.clone().addScaledVector(side, ca * r.rx * k).addScaledVector(front, sa * fz * k);
-        this.vert(p, i / sides, j / (rs.length - 1), r.color, r.w);
+        const band = this.bandOf(r.color);
+        this.vert(p, (i / sides) * 2, SkinBuilder.vb(band, j / (rs.length - 1)), r.ao ? r.color.clone().multiplyScalar(r.ao) : r.color, r.w);
       }
     }
     const S = sides + 1;
@@ -74,7 +79,7 @@ class SkinBuilder {
     }
     const cap = (j: number, flip: boolean) => {
       const r = rs[j]!;
-      const c = this.vert(r.c, 0.5, 0.5, r.color, r.w);
+      const c = this.vert(r.c, 0.5, SkinBuilder.vb(this.bandOf(r.color), 0.5), r.color, r.w);
       for (let i = 0; i < sides; i++) {
         const a = base + j * S + i;
         if (flip) this.tri(g, c, a + 1, a); else this.tri(g, c, a, a + 1);
@@ -94,7 +99,7 @@ class SkinBuilder {
         const th = (i / cols) * Math.PI * 2;
         let y = Math.cos(ph) * r.y;
         if (flatBottom && y < -r.y * 0.4) y = -r.y * 0.4;
-        this.vert(new THREE.Vector3(c.x + Math.sin(ph) * Math.cos(th) * r.x, c.y + y, c.z + Math.sin(ph) * Math.sin(th) * r.z), i / cols, j / rows, color, w);
+        this.vert(new THREE.Vector3(c.x + Math.sin(ph) * Math.cos(th) * r.x, c.y + y, c.z + Math.sin(ph) * Math.sin(th) * r.z), i / cols, SkinBuilder.vb(this.bandOf(color), j / rows), color, w);
       }
     }
     const C = cols + 1;
@@ -112,7 +117,7 @@ class SkinBuilder {
       [[1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]], [[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]],
     ];
     for (const f of faces) {
-      const ids = f.map(([x, y, z]) => this.vert(P(x, y, z), 0.5, 0.5, color, w));
+      const ids = f.map(([x, y, z]) => this.vert(P(x, y, z), 0.5, SkinBuilder.vb(this.bandOf(color), 0.5), color, w));
       this.tri(0, ids[0]!, ids[1]!, ids[2]!); this.tri(0, ids[0]!, ids[2]!, ids[3]!);
     }
   }
@@ -171,6 +176,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const shoe = new THREE.Color(p.shoes);
   const hairC = new THREE.Color(p.hair.color);
   const m = p.muscle, f = p.fat;
+  B.bandOf = (c) => c === skin ? 0 : c === hairC ? 4 : c === shirt ? (p.shirt.pattern === 'microcuadro' ? 3 : 1) : c === pants ? (p.pants.type === 'jean' ? 2 : 1) : 1;
 
   // ---------- Torso: pelvis -> cintura -> barriga -> pecho -> hombros ----------
   const tor = (y: number, rx: number, rz: number, dz: number, w: W, c: THREE.Color) => ({ c: new THREE.Vector3(0, y * H, 0), rx: rx * H, rz: rz * H, dz: dz * H, w, color: c, shape: torsoShape(y) });
@@ -194,7 +200,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   const chestRx = (fem ? 0.085 : 0.095) + m * 0.02 + f * 0.018;
   const belly = f * 0.045;
   const torsoRings = [
-    tor(0.465, hipRx * 0.92, 0.062 + f * 0.012, 0, [['hips', 1]], pants),
+    { ...tor(0.465, hipRx * 0.92, 0.062 + f * 0.012, 0, [['hips', 1]], pants), ao: 0.72 },
     tor(0.5, hipRx * 0.98, 0.066 + f * 0.016, f * 0.008, [['hips', 1]], pants),
     tor(0.515, hipRx + 0.004, 0.07 + f * 0.018, f * 0.012, [['hips', 1]], p.shirt.type === 'franelilla' || p.pants.type === 'falda' ? pants : shirt), // ruedo de la camisa por fuera
     tor(0.565, Math.max(waistRx + f * 0.01, hipRx * 0.96), 0.064 + f * 0.02, belly * 0.7, [['hips', 0.6], ['spine', 0.4]], p.pants.type === 'falda' ? pants : shirt),
@@ -210,7 +216,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   // Cuello
   const neckR = (0.036 + m * 0.01 + f * 0.008) * H;
   B.rings([
-    { c: new THREE.Vector3(0, 0.82 * H, -0.004 * H), rx: neckR, rz: neckR * 0.95, w: [['neck', 1]], color: skin },
+    { c: new THREE.Vector3(0, 0.82 * H, -0.004 * H), rx: neckR, rz: neckR * 0.95, w: [['neck', 1]], color: skin, ao: 0.7 },
     { c: new THREE.Vector3(0, 0.875 * H, 0), rx: neckR * 0.92, rz: neckR * 0.9, w: [['neck', 0.4], ['head', 0.6]], color: skin },
   ], 8);
   // Cuello de la camisa
@@ -227,18 +233,19 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
 
   // ---------- Brazos ----------
   for (const s of ['L', 'R'] as const) {
+    const sg = s === 'L' ? 1 : -1;
 
     const up = J[`upperArm_${s}`], el = J[`foreArm_${s}`], wr = J[`hand_${s}`];
     const ua = `upperArm_${s}` as BoneName, fa = `foreArm_${s}` as BoneName, ha = `hand_${s}` as BoneName, sh = `shoulder_${s}` as BoneName;
-    const rUp = (0.036 + m * 0.014 + f * 0.012) * H, rEl = (0.027 + m * 0.006 + f * 0.006) * H, rWr = (0.02 + m * 0.003) * H;
+    const rUp = (0.032 + m * 0.013 + f * 0.011) * H, rEl = (0.027 + m * 0.006 + f * 0.006) * H, rWr = (0.02 + m * 0.003) * H;
     const sleeveLong = p.shirt.type === 'manga_larga';
     const sleeveShort = p.shirt.type === 'manga_corta';
     const N = 7;
     const arm: Parameters<SkinBuilder['rings']>[0] = [];
     // hombro (deltoides)
     const armDir = new THREE.Vector3().subVectors(up, el).normalize(); // del codo al hombro
-    arm.push({ c: up.clone().addScaledVector(armDir, 0.028 * H), rx: rUp * 0.75, rz: rUp * 0.85, w: [[sh, 0.5], [ua, 0.5]], color: p.shirt.type === 'franelilla' ? skin : shirt });
-    arm.push({ c: up.clone().add(new THREE.Vector3(0, 0.004 * H, 0)), rx: rUp * 1.3, rz: rUp * 1.3, w: [[sh, 0.3], [ua, 0.7]], color: p.shirt.type === 'franelilla' ? skin : shirt });
+    arm.push({ c: up.clone().addScaledVector(armDir, 0.028 * H), rx: rUp * 0.85, rz: rUp * 0.9, w: [[sh, 0.5], [ua, 0.5]], color: p.shirt.type === 'franelilla' ? skin : shirt, ao: 0.8 });
+    arm.push({ c: up.clone().add(new THREE.Vector3(0, 0.004 * H, 0)), rx: rUp * 1.08, rz: rUp * 1.12, w: [[sh, 0.3], [ua, 0.7]], color: p.shirt.type === 'franelilla' ? skin : shirt });
     for (let k = 0; k <= N; k++) {
       const t = k / N;
       const c = up.clone().lerp(el, t);
@@ -258,11 +265,40 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
       arm.push({ shape: (a) => 1 + fo * (0.06 + m * 0.12) * bump(a, FRONT + 0.6, 0.8), c, rx: r * (cuff ? 1.15 : 1), rz: r * 0.9 * (cuff ? 1.15 : 1), w: [[fa, 1 - smooth(0.8, 1, t) * 0.5], [ha, smooth(0.8, 1, t) * 0.5], [ua, (1 - smooth(0, 0.2, t)) * 0.4]], color: sleeveLong ? shirt : skin });
     }
     B.rings(arm, 10, true, true);
-    // Mano tipo mitón con pulgar
+    // Mano: palma + 4 dedos (3 falanges, ligeramente flexionados) + pulgar
     const dir = new THREE.Vector3().subVectors(wr, el).normalize();
-    const hc = wr.clone().addScaledVector(dir, 0.045 * H);
-    B.ellipsoid(hc, new THREE.Vector3(0.022 * H, 0.05 * H, 0.03 * H), skin, [[ha, 1]], 6);
-    B.ellipsoid(wr.clone().addScaledVector(dir, 0.025 * H).add(new THREE.Vector3(0, 0, 0.026 * H)), new THREE.Vector3(0.011 * H, 0.025 * H, 0.011 * H), skin, [[ha, 1]], 4);
+    const inward = new THREE.Vector3(-sg, 0, 0);              // hacia el cuerpo (la palma mira hacia dentro)
+    const fwd = new THREE.Vector3(0, 0, 1);
+    const palmC = wr.clone().addScaledVector(dir, 0.04 * H);
+    B.ellipsoid(palmC, new THREE.Vector3(0.014 * H, 0.04 * H, 0.028 * H), skin, [[ha, 1]], 6);
+    const fingerLen = [0.044, 0.05, 0.047, 0.038];
+    for (let k = 0; k < 4; k++) {
+      const off = (1.5 - k) * 0.0118 * H;                    // índice adelante, meñique atrás
+      let pnt = palmC.clone().addScaledVector(dir, 0.035 * H).addScaledVector(fwd, off).addScaledVector(inward, 0.003 * H);
+      const ring: Parameters<SkinBuilder['rings']>[0] = [];
+      let d = dir.clone();
+      const seg = (fingerLen[k]! * H) / 3;
+      for (let jj = 0; jj <= 3; jj++) {
+        const rr = (0.0074 - jj * 0.0008) * H;
+        ring.push({ c: pnt.clone(), rx: rr, rz: rr * 0.95, w: [[ha, 1]], color: skin });
+        pnt = pnt.clone().addScaledVector(d, seg);
+        d = d.clone().addScaledVector(inward, 0.75).normalize(); // flexión hacia la palma (mano relajada / puño)
+      }
+      B.rings(ring, 6, false, true);
+    }
+    // Pulgar: sale del lado delantero de la palma, hacia delante y abajo
+    {
+      let pnt = palmC.clone().addScaledVector(dir, -0.012 * H).addScaledVector(fwd, 0.026 * H).addScaledVector(inward, 0.006 * H);
+      let d = dir.clone().addScaledVector(fwd, 0.8).addScaledVector(inward, 0.3).normalize();
+      const ring: Parameters<SkinBuilder['rings']>[0] = [];
+      for (let jj = 0; jj <= 3; jj++) {
+        const rr = (0.0075 - jj * 0.0009) * H;
+        ring.push({ c: pnt.clone(), rx: rr, rz: rr, w: [[ha, 1]], color: skin });
+        pnt = pnt.clone().addScaledVector(d, 0.016 * H);
+        d = d.clone().addScaledVector(inward, 0.35).addScaledVector(dir, 0.3).normalize();
+      }
+      B.rings(ring, 6, false, true);
+    }
     // Reloj en la muñeca izquierda
     if (p.watch && s === 'L') B.ellipsoid(wr.clone().addScaledVector(dir, -0.012 * H), new THREE.Vector3(rWr * 1.25, 0.012 * H, rWr * 1.25), new THREE.Color(0x111111), [[fa, 1]], 5);
   }
@@ -382,7 +418,7 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
         y += lift;
         const P = new THREE.Vector3(hc.x + x * hrx * thick, hc.y + y * hry * (thick - 0.01) + headH * 0.02, hc.z + z * hrz * thick);
         keep.push(y > hairline - (z < 0 ? 0.55 : 0) || z < -0.2);
-        B.vert(P, 0.5, 0.5, hairC, [['head', 1]]);
+        B.vert(P, (i / cols) * 3, SkinBuilder.vb(4, j / rows), hairC, [['head', 1]]);
       }
     }
     const C = cols + 1;
@@ -437,8 +473,8 @@ export function buildHuman(p: HumanParams, fabric: THREE.Texture): { mesh: THREE
   }
   const skeleton = new THREE.Skeleton(BONES.map((n) => bones[n]));
   const geo = B.geometry();
-  const bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: fabric });
-  const faceMat = new THREE.MeshLambertMaterial({ map: faceTexture(p) });
+  const bodyMat = new THREE.MeshPhongMaterial({ vertexColors: true, map: fabric, shininess: 14, specular: new THREE.Color(0x1a1a1a) });
+  const faceMat = new THREE.MeshPhongMaterial({ map: faceTexture(p), shininess: 22, specular: new THREE.Color(0x262220) });
   const mesh = new THREE.SkinnedMesh(geo, [bodyMat, faceMat]);
   mesh.add(bones.root);
   mesh.bind(skeleton);
@@ -488,11 +524,20 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
     g.fillStyle = p.face.eye; g.beginPath(); g.arc(cx + sg * -1, cy, 7, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#0a0806'; g.beginPath(); g.arc(cx + sg * -1, cy, 3.2, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#ffffff'; g.fillRect(cx + 1, cy - 3, 2, 2);
-    g.strokeStyle = 'rgba(30,18,10,0.9)'; g.lineWidth = 3;
-    g.beginPath(); g.ellipse(cx, cy + 1, 18.5, 9.5, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke(); // párpado
+    g.strokeStyle = 'rgba(20,12,8,0.95)'; g.lineWidth = 3.5;
+    g.beginPath(); g.ellipse(cx, cy + 1, 18.5, 9.5, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke(); // párpado superior
+    for (let k = 0; k < 9; k++) { const a = Math.PI * (1.12 + k * 0.09); const ex = cx + Math.cos(a) * 18.5, ey = cy + 1 + Math.sin(a) * 9.5; g.lineWidth = 1.2; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + Math.cos(a) * 3, ey - 3); g.stroke(); } // pestañas
+    g.strokeStyle = 'rgba(120,70,50,0.45)'; g.lineWidth = 1.5;
+    g.beginPath(); g.ellipse(cx, cy - 1, 17, 8, 0, Math.PI * 0.1, Math.PI * 0.9); g.stroke(); // párpado inferior
+    g.strokeStyle = 'rgba(100,60,40,0.25)'; g.lineWidth = 1.2;
+    g.beginPath(); g.ellipse(cx, cy - 5, 19, 13, 0, Math.PI * 1.15, Math.PI * 1.85); g.stroke(); // pliegue del párpado
     // Ceja
-    g.strokeStyle = p.face.brow; g.lineWidth = 4 + p.face.browThick * 6; g.lineCap = 'round';
+    // Ceja: trazo base + pelos
+    g.strokeStyle = p.face.brow; g.globalAlpha = 0.55; g.lineWidth = 3 + p.face.browThick * 5; g.lineCap = 'round';
     g.beginPath(); g.moveTo(cx - sg * 20, Y(eyeY + 0.17)); g.quadraticCurveTo(cx, Y(eyeY + 0.25), cx + sg * 22, Y(eyeY + 0.18)); g.stroke();
+    g.globalAlpha = 0.9; g.lineWidth = 1;
+    for (let k = 0; k < 26; k++) { const t2 = k / 25; const bx = cx - sg * 20 + sg * 42 * t2, by = Y(eyeY + 0.17 + Math.sin(t2 * Math.PI) * 0.06) + 3; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sg * 4, by - 4 - p.face.browThick * 3); g.stroke(); }
+    g.globalAlpha = 1;
   }
   // Nariz
   g.strokeStyle = 'rgba(80,40,25,0.4)'; g.lineWidth = 2;
@@ -503,6 +548,9 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
   rad(0, -0.22, 0.07, 'rgba(255,255,255,0.12)');
   // Boca con sonrisa
   const sm = p.face.smile;
+  // Poros y textura de piel
+  for (let i = 0; i < 1800; i++) { const x = Math.random() * S, yy = Math.random() * S; g.fillStyle = `rgba(90,50,35,${Math.random() * 0.06})`; g.fillRect(x, yy, 1.5, 1.5); }
+  rad(0, 0.55, 0.22, 'rgba(255,240,225,0.10)'); // brillo de la frente
   g.fillStyle = 'rgba(150,70,60,0.85)';
   g.beginPath();
   g.moveTo(X(-0.3), Y(-0.47 + sm * 0.05));
@@ -510,6 +558,9 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
   g.quadraticCurveTo(X(0), Y(-0.55 - sm * 0.06), X(-0.3), Y(-0.47 + sm * 0.05));
   g.fill();
   if (sm > 0.5) { g.fillStyle = '#f2ece2'; g.beginPath(); g.moveTo(X(-0.23), Y(-0.47)); g.quadraticCurveTo(X(0), Y(-0.45), X(0.23), Y(-0.47)); g.quadraticCurveTo(X(0), Y(-0.51), X(-0.23), Y(-0.47)); g.fill(); }
+  // Labio inferior con brillo
+  g.fillStyle = 'rgba(175,95,85,0.7)'; g.beginPath(); g.ellipse(X(0), Y(-0.53 - sm * 0.04), S * 0.09, S * 0.018, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,230,220,0.25)'; g.beginPath(); g.ellipse(X(0.02), Y(-0.54 - sm * 0.04), S * 0.03, S * 0.006, 0, 0, Math.PI * 2); g.fill();
   g.strokeStyle = 'rgba(70,30,20,0.6)'; g.lineWidth = 1.5;
   for (const sg of [1, -1]) { g.beginPath(); g.moveTo(X(sg * 0.3), Y(-0.36)); g.quadraticCurveTo(X(sg * 0.33), Y(-0.45), X(sg * 0.27), Y(-0.52)); g.stroke(); } // surcos de la sonrisa
   const t = new THREE.CanvasTexture(c);
@@ -517,21 +568,45 @@ export function faceTexture(p: HumanParams): THREE.CanvasTexture {
   return t;
 }
 
-/** Textura de tela neutra (pliegues y trama) que multiplica los colores por vértice. */
+/**
+ * Atlas de telas (256×320, 5 franjas de 64 px, de abajo arriba): 0 piel (poros), 1 algodón (tejido y pliegues),
+ * 2 jean (sarga diagonal, desgaste y costura), 3 camisa de microcuadro, 4 cabello (mechones). Multiplica el color por vértice.
+ */
 export function fabricTexture(): THREE.CanvasTexture {
-  const S = 128;
-  const c = document.createElement('canvas'); c.width = c.height = S;
+  const W = 256, BH = 64, HH = BH * 5;
+  const c = document.createElement('canvas'); c.width = W; c.height = HH;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#e8e8e8'; g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 18; i++) {
-    const x = Math.random() * S;
-    const gr = g.createLinearGradient(x - 6, 0, x + 6, 0);
-    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.14)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr; g.fillRect(x - 6, 0, 12, S);
-  }
-  for (let y = 0; y < S; y += 2) { g.fillStyle = 'rgba(0,0,0,0.04)'; g.fillRect(0, y, S, 1); }
+  let seed = 99; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const band = (k: number) => HH - (k + 1) * BH; // y del borde superior de la franja k
+  const noise = (y0: number, amt: number, a = 1) => { for (let i = 0; i < W * BH * 0.5; i++) { const v = 255 - r() * amt; g.fillStyle = `rgba(${v},${v},${v},${a})`; g.fillRect(r() * W, y0 + r() * BH, 1, 1); } };
+  const folds = (y0: number, n: number, k: number) => { for (let i = 0; i < n; i++) { const x = r() * W, w = 6 + r() * 14; const gr = g.createLinearGradient(x - w, 0, x + w, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, `rgba(0,0,0,${k})`); gr.addColorStop(0.62, `rgba(255,255,255,${k * 0.6})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - w, y0, w * 2, BH); } };
+  // 0 piel
+  let y = band(0); g.fillStyle = '#f6f2ee'; g.fillRect(0, y, W, BH); noise(y, 22, 0.5);
+  for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(150,90,70,0.12)'; g.beginPath(); g.arc(r() * W, y + r() * BH, 1 + r() * 1.5, 0, 7); g.fill(); }
+  // 1 algodón
+  y = band(1); g.fillStyle = '#eeeeee'; g.fillRect(0, y, W, BH);
+  for (let x = 0; x < W; x += 2) { g.fillStyle = 'rgba(0,0,0,0.05)'; g.fillRect(x, y, 1, BH); }
+  for (let yy = y; yy < y + BH; yy += 2) { g.fillStyle = 'rgba(0,0,0,0.04)'; g.fillRect(0, yy, W, 1); }
+  folds(y, 14, 0.16);
+  // 2 jean: sarga diagonal, desgaste vertical claro, costura lateral anaranjada
+  y = band(2); g.fillStyle = '#e4e8f0'; g.fillRect(0, y, W, BH);
+  g.save(); g.beginPath(); g.rect(0, y, W, BH); g.clip();
+  for (let x = -BH; x < W; x += 3) { g.strokeStyle = 'rgba(0,0,30,0.16)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y + BH); g.lineTo(x + BH, y); g.stroke(); }
+  for (let i = 0; i < 6; i++) { const x = r() * W; const gr = g.createLinearGradient(x - 18, 0, x + 18, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.3)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(x - 18, y, 36, BH); }
+  for (const sx of [64, 192]) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(sx, y, 2, BH); for (let yy = y; yy < y + BH; yy += 5) { g.fillStyle = 'rgba(210,140,60,0.9)'; g.fillRect(sx + 3, yy, 1, 3); } }
+  folds(y, 8, 0.14);
+  g.restore();
+  // 3 microcuadro (camisa): cuadrícula fina clara/oscura
+  y = band(3); g.fillStyle = '#ececf2'; g.fillRect(0, y, W, BH);
+  for (let x = 0; x < W; x += 3) { g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(x, y, 1, BH); }
+  for (let yy = y; yy < y + BH; yy += 3) { g.fillStyle = 'rgba(0,0,40,0.08)'; g.fillRect(0, yy, W, 1); }
+  folds(y, 12, 0.16);
+  // 4 cabello: mechones
+  y = band(4); g.fillStyle = '#d8d8d8'; g.fillRect(0, y, W, BH);
+  for (let i = 0; i < 700; i++) { const x = r() * W; const v = r() < 0.5 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)'; g.strokeStyle = v; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + (r() - 0.5) * 6, y + BH / 2, x + (r() - 0.5) * 8, y + BH); g.stroke(); }
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   return t;
 }
