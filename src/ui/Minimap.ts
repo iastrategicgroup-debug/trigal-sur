@@ -11,8 +11,8 @@ export class Minimap {
   private ox: number; private oz: number;
   zoom = 1.1; // escala de visualización
 
-  constructor(container: HTMLElement, map: CityMap, lots: Lot[]) {
-    const W = Math.ceil((map.half.w * 2 + 200) * this.S), H = Math.ceil((map.half.h * 2 + 200) * this.S);
+  constructor(container: HTMLElement, map: CityMap, lots: Lot[], hill?: { cx: number; cz: number; r: number; path: { x: number; z: number }[] }) {
+    const W = Math.ceil((map.half.w * 2 + 200) * this.S), H = Math.ceil((map.half.h * 2 + 600) * this.S);
     this.ox = map.half.w + 100; this.oz = map.half.h + 100;
     this.base = document.createElement('canvas');
     this.base.width = W; this.base.height = H;
@@ -24,6 +24,10 @@ export class Minimap {
       g.beginPath(); a.poly.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.closePath(); g.fill();
     }
     for (const l of lots) { g.fillStyle = l.kind === 'baldio' ? '#8a7a5a' : '#9a8f80'; const c = rectCorners(l.c, l.u, l.n, l.hw, l.hd); g.beginPath(); c.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.closePath(); g.fill(); }
+    if (hill) {
+      g.fillStyle = '#7a7048'; g.beginPath(); g.arc(X(hill.cx), Z(hill.cz), hill.r * this.S, 0, 7); g.fill();
+      g.strokeStyle = '#c8a870'; g.lineWidth = 6 * this.S; g.beginPath(); hill.path.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.stroke();
+    }
     g.lineCap = 'round'; g.lineJoin = 'round';
     for (const pass of [0, 1]) for (const r of [...map.roads].sort((a, b) => a.width - b.width)) {
       g.strokeStyle = pass ? (r.kind === 'motorway' || r.kind === 'motorway_link' ? '#e0b040' : '#2c2c2c') : '#d8d0c0';

@@ -38,14 +38,16 @@ export class ThirdPersonCamera {
   occlusion: ((ax: number, az: number, bx: number, bz: number) => number) | null = null;
   /** Apuntar: cámara al hombro derecho, más cerca y con menos FOV. */
   aim = false;
+  /** Al manejar: distancia/altura propias y recentrado rápido detrás del vehículo. */
+  vehicle: { dist: number; height: number } | null = null;
   private aimK = 0;
   private lastMouse = 0;
 
   update(frameDt: number, playerPos: THREE.Vector3, running: boolean, moving = false, facing = 0): void {
     this.aimK += ((this.aim ? 1 : 0) - this.aimK) * (1 - Math.exp(-12 * frameDt));
-    const goal = THREE.MathUtils.lerp(CONFIG.camera.distances[this.distIndex]!, 1.7, this.aimK);
+    const goal = this.vehicle ? this.vehicle.dist * (this.distIndex >= 2 ? 1.5 : 1) : THREE.MathUtils.lerp(CONFIG.camera.distances[this.distIndex]!, 1.7, this.aimK);
     this.dist += (goal - this.dist) * (1 - Math.exp(-8 * frameDt));
-    this.target.copy(playerPos).y += CONFIG.camera.targetHeight;
+    this.target.copy(playerPos).y += this.vehicle ? this.vehicle.height : CONFIG.camera.targetHeight;
     // Hombro derecho: desplaza el objetivo a la derecha de la cámara
     this.target.x += Math.cos(this.yaw) * 0.5 * this.aimK;
     this.target.z += -Math.sin(this.yaw) * 0.5 * this.aimK;
@@ -53,10 +55,10 @@ export class ThirdPersonCamera {
 
     // Recentrado detrás del personaje tras 3 s sin mover el ratón mientras camina
     this.lastMouse += frameDt;
-    if (moving && this.lastMouse > CONFIG.camera.recenterDelay && !this.inIntro) {
+    if (moving && this.lastMouse > (this.vehicle ? 0.8 : CONFIG.camera.recenterDelay) && !this.inIntro) {
       let d = facing + Math.PI - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.yaw += d * (1 - Math.exp(-1.5 * frameDt));
+      this.yaw += d * (1 - Math.exp(-(this.vehicle ? 4 : 1.5) * frameDt));
     }
     let dist = this.dist;
     if (this.occlusion && !this.inIntro) {

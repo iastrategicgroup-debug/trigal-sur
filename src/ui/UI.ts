@@ -12,7 +12,9 @@ const CONTROLS: [string, string][] = [
   ['Clic izq. / Q', 'Golpear'],
   ['E', 'Saludar / sentarse en un banco'],
   ['Clic der.', 'Apuntar (mantener)'],
-  ['F', 'Subir o bajar de un vehículo (próximamente)'],
+  ['F', 'Subir o bajar de un vehículo (si tiene conductor, lo sacas)'],
+  ['W / S · A / D', 'En vehículo: acelerar / frenar · girar; Espacio: freno de mano'],
+  ['Espacio / Shift', 'En helicóptero: subir / bajar'],
   ['1 · 2 · 3', 'Comprar en abastos y camiones de comida'],
   ['M', 'Mapa'],
   ['Esc', 'Pausa'],
@@ -53,6 +55,9 @@ export class UI {
   private moneyEl: HTMLDivElement;
   private hurtEl: HTMLDivElement;
   private ammoEl: HTMLDivElement;
+  private starsEl: HTMLDivElement;
+  private speedEl: HTMLDivElement;
+  private bannerEl: HTMLDivElement;
   private menuEl: HTMLDivElement;
   private crossEl: HTMLDivElement;
   private lastStreet = '';
@@ -110,13 +115,16 @@ export class UI {
     this.clockEl = el('div', 'clock', '17:30');
     this.moneyEl = el('div', 'money', '$0');
     this.ammoEl = el('div', 'ammo');
+    this.starsEl = el('div', 'stars');
+    this.speedEl = el('div', 'speedo');
+    this.bannerEl = el('div', 'banner');
     this.menuEl = el('div', 'shopmenu');
     const bars = el('div', 'bars');
     const mk = (cls: string, title: string) => { const b = el('div', `bar ${cls}`); b.title = title; const f = el('div'); b.append(f); bars.append(b); return f; };
     this.healthEl = mk('health', 'Salud');
     this.shieldEl = mk('shield', 'Escudo');
     this.staminaEl = mk('stamina', 'Resistencia');
-    tr.append(this.clockEl, bars, this.moneyEl, this.ammoEl);
+    tr.append(this.clockEl, bars, this.moneyEl, this.ammoEl, this.starsEl);
     this.minimap = el('div', 'minimap');
     this.hintEl = el('div', 'hint');
     this.streetEl = el('div', 'street');
@@ -124,7 +132,7 @@ export class UI {
     this.crossEl = el('div', 'cross');
     this.toastEl = el('div', 'toast');
     this.placesEl = el('div', 'places');
-    this.hud.append(this.menuEl, this.hurtEl, this.crossEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
+    this.hud.append(this.speedEl, this.bannerEl, this.menuEl, this.hurtEl, this.crossEl, tr, this.minimap, this.hintEl, this.streetEl, this.toastEl, this.placesEl);
     this.deathEl = el('div', 'death', '<div>HAS CAÍDO</div>');
 
     this.debug = el('div', 'debug');
@@ -224,6 +232,9 @@ export class UI {
   setPlaces(found: number, total: number): void { this.placesEl.textContent = `Lugares ${found}/${total}`; }
   /** Destello rojo en los bordes al recibir daño. */
   hurt(): void { this.hurtEl.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => this.hurtEl.classList.remove('on'))); }
+  setWanted(n: number): void { const k = Math.ceil(n - 0.01); this.starsEl.innerHTML = k > 0 ? '★'.repeat(k) + '<span>' + '★'.repeat(5 - k) + '</span>' : ''; }
+  setSpeed(kmh: number | null): void { this.speedEl.style.display = kmh === null ? 'none' : 'block'; if (kmh !== null) this.speedEl.innerHTML = `${Math.round(kmh)}<small>km/h</small>`; }
+  setBanner(t: string): void { this.bannerEl.textContent = t; this.bannerEl.style.display = t ? 'block' : 'none'; this.bannerEl.classList.toggle('small', t.startsWith('Posición')); }
   setAmmo(n: number | null): void { this.ammoEl.textContent = n === null ? '' : `Escopeta · ${n}`; }
   showMenu(title: string, lines: string[], money: number): void {
     this.menuEl.innerHTML = `<div class="dialog-title">${title}</div>${lines.map((l) => `<div class="mi">${l}</div>`).join('')}<div class="dialog-step">Tienes $${money} · <kbd>E</kbd> cerrar</div>`;

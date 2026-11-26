@@ -18,7 +18,7 @@ export interface PlayerCtx {
   notify(html: string): void;
 }
 
-interface Npc {
+export interface Npc {
   id: number;
   kind: Archetype;
   avatar: Avatar;
@@ -87,7 +87,15 @@ export class NpcManager {
       if (d < minDist || d > SPAWN_MAX) continue;
       if (this.npcs.some((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 1.2)) continue; // sin encimarse
       if (Math.abs(p.x) > this.world.map.half.w - 5 || Math.abs(p.z) > this.world.map.half.h - 5) continue;
-      const kind = randomArchetype(this.rnd);
+      this.make(randomArchetype(this.rnd), p, wp, pi);
+      return;
+    }
+  }
+
+  /** Crea un NPC en `p` sobre la ruta peatonal `wp` (o la más cercana). */
+  private make(kind: Archetype, p: V2, wp?: { road: Road; pts: V2[] }, pi = 0): Npc {
+    if (!wp) { const r = this.nearestPath(p); wp = r.wp; pi = r.i; }
+    {
       const avatar = new Avatar(npcParams(kind, Math.floor(this.rnd() * 1e9)));
       const old = kind === 'anciano' || kind === 'anciana';
       const npc: Npc = {
@@ -102,9 +110,58 @@ export class NpcManager {
       avatar.object.position.copy(npc.pos);
       this.group.add(avatar.object);
       this.npcs.push(npc);
-      return;
+      return npc;
     }
   }
+
+  private nearestPath(p: V2): { wp: { road: Road; pts: V2[] }; i: number } {
+    let best = this.walkPaths[0]!, bi = 0, bd = Infinity;
+    for (const wp of this.walkPaths) for (let i = 0; i < wp.pts.length; i += 2) {
+      const d = Math.hypot(wp.pts[i]!.x - p.x, wp.pts[i]!.z - p.z);
+      if (d < bd) { bd = d; best = wp; bi = i; }
+    }
+    return { wp: best, i: bi };
+  }
+
+  /** Conductor sacado de su carro: aparece junto a la puerta; pelea o huye. */
+  ejectDriver(p: V2, kind: Archetype, fight: boolean): Npc {
+    const n = this.make(kind, p);
+    n.facing = this.rnd() * 6.28;
+    n.state = 'golpeado'; n.hitStun = 0.6; n.aggressive = fight;
+    n.avatar.play('hit', 0.05, true);
+    return n;
+  }
+
+  /** Ladrón que pasea cerca de `p` (para robar carros). Lo saca del mundo y devuelve su tipo. */
+  takeThiefNear(p: V2, r: number): boolean {
+    const n = this.npcs.find((n) => n.kind === 'ladron' && n.state === 'caminar' && Math.hypot(n.pos.x - p.x, n.pos.z - p.z) < r);
+    if (!n) return false;
+    this.remove(n);
+    return true;
+  }
+
+  /** Atropello: daño según la velocidad. Devuelve [heridos, muertos]. */
+  vehicleHit(p: THREE.Vector3, radius: number, speed: number, dx: number, dz: number, byPlayer: boolean): [number, number] {
+    let hurt = 0, dead = 0;
+    for (const n of this.npcs) {
+      if (n.state === 'muerto') continue;
+      const ex = n.pos.x - p.x, ez = n.pos.z - p.z;
+      if (Math.hypot(ex, ez) > radius) continue;
+      const dmg = speed * 9;
+      n.health -= dmg;
+      n.pos.x += dx * Math.min(3, speed * 0.25); n.pos.z += dz * Math.min(3, speed * 0.25);
+      this.world.collision.resolve(n.pos, 0.3);
+      if (n.health <= 0) { this.kill(n); dead++; if (byPlayer) this.onCrime?.('muerte', n.kind); }
+      else { n.state = 'golpeado'; n.hitStun = 0.6; n.avatar.play('hit', 0.05, true); hurt++; if (byPlayer) this.onCrime?.('asalto', n.kind); }
+    }
+    return [hurt, dead];
+  }
+
+  /** Policía que se baja de la patrulla y va por el jugador. */
+  spawnCop(p: V2): Npc { const n = this.make('policia', p); n.state = 'pelear'; n.aggressive = true; return n; }
+
+  /** Delitos del jugador (para el nivel de búsqueda). */
+  onCrime: ((type: 'asalto' | 'muerte', kind: Archetype) => void) | null = null;
 
   private remove(n: Npc): void {
     this.group.remove(n.avatar.object);
@@ -125,7 +182,8 @@ export class NpcManager {
       // empujón
       n.pos.x += fx * 0.35; n.pos.z += fz * 0.35;
       this.world.collision.resolve(n.pos, 0.3);
-      if (n.health <= 0) { this.kill(n); continue; }
+      if (n.health <= 0) { this.kill(n); this.onCrime?.('muerte', n.kind); continue; }
+      this.onCrime?.('asalto', n.kind);
       n.state = 'golpeado'; n.hitStun = 0.35;
       n.avatar.play('hit', 0.08, true);
       // Los que ven la pelea alrededor huyen

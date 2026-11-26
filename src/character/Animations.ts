@@ -168,6 +168,12 @@ export function buildClips(): Record<string, THREE.AnimationClip> {
     spine: [-0.08, 0, 0], upperArm_L: [-0.5, 0, 0.12], upperArm_R: [-0.5, 0, -0.12], foreArm_L: [-0.6, 0, 0], foreArm_R: [-0.6, 0, 0], _y: -0.46,
   }));
   c.flee = clip('flee', 1, 16, gait(0.85, 1.8, 1.0, 0.3, 0.07, 1.4));
+  // En moto: sentado inclinado hacia adelante, manos al manubrio
+  c.ride = clip('ride', 1, 4, () => ({
+    thigh_L: [-1.2, 0, 0.25], thigh_R: [-1.2, 0, -0.25], shin_L: [1.5, 0, 0], shin_R: [1.5, 0, 0],
+    spine: [0.45, 0, 0], chest: [0.15, 0, 0], neck: [-0.55, 0, 0],
+    upperArm_L: [-1.1, -0.35, -0.15], upperArm_R: [-1.1, 0.35, 0.15], foreArm_L: [-0.5, 0, 0], foreArm_R: [-0.5, 0, 0], _y: -0.12,
+  }));
   // Comer: lleva la mano derecha a la boca tres veces, mastica
   c.eat = clip('eat', 2.4, 24, (t) => {
     const bite = Math.max(0, S(t * PI2 * 3 - 0.6));

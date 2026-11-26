@@ -27,6 +27,83 @@ export class CityWorld {
   private poolMat!: THREE.MeshBasicMaterial;
   private parks: { poly: V2[] }[] = [];
   readonly benches: { p: V2; ry: number }[] = [];
+  /** Cerro ficticio al sur, con su camino de tierra (ruta de la carrera de motos). */
+  hill!: { cx: number; cz: number; r: number; h: number; gx: number; gz: number };
+  racePath: THREE.Vector3[] = [];
+
+  hillHeight(x: number, z: number): number {
+    const H = this.hill; if (!H) return 0;
+    const d = Math.hypot(x - H.cx, z - H.cz);
+    if (d >= H.r) return 0;
+    const k = 0.5 + 0.5 * Math.cos((Math.PI * d) / H.r);
+    // pequeñas lomas para que no sea un domo perfecto
+    return H.h * k * k * (3 - 2 * k) + 2.2 * Math.sin(x * 0.07) * Math.sin(z * 0.06) * k;
+  }
+
+  private buildHill(rnd: () => number): void {
+    const H = this.hill;
+    // Camino en espiral desde la cima hasta la entrada (norte del cerro)
+    const pts: THREE.Vector3[] = [];
+    const turns = 1.6, N = 260;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const th = -Math.PI / 2 - turns * Math.PI * 2 * (1 - t);
+      const r = 10 + (H.r - 14) * t;
+      const x = H.cx + Math.cos(th) * r, z = H.cz + Math.sin(th) * r;
+      pts.push(new THREE.Vector3(x, this.hillHeight(x, z), z));
+    }
+    // tramo final hasta la entrada del barrio
+    for (let z = H.cz - H.r + 2; z > H.gz - 4; z -= 3) pts.push(new THREE.Vector3(H.cx, 0, z));
+    this.racePath = pts;
+    // Terreno (malla polar) con grama seca
+    const g = new THREE.BufferGeometry();
+    const R = 48, A = 72, pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let i = 0; i <= R; i++) for (let j = 0; j <= A; j++) {
+      const r = (H.r + 2) * (i / R), a = (j / A) * Math.PI * 2;
+      const x = H.cx + Math.cos(a) * r, z = H.cz + Math.sin(a) * r;
+      pos.push(x, this.hillHeight(x, z) + 0.02, z); uv.push(x / 5, z / 5);
+    }
+    for (let i = 0; i < R; i++) for (let j = 0; j < A; j++) { const a = i * (A + 1) + j, b = a + A + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    const terrain = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: T.grass(), color: 0xd8c898 }));
+    terrain.receiveShadow = true; this.root.add(terrain);
+    // Camino de tierra sobre el terreno
+    const road = new THREE.BufferGeometry(); const rp: number[] = [], ru: number[] = [], ri: number[] = [];
+    let acc = 0;
+    pts.forEach((p, i) => {
+      const n = pts[Math.min(i + 1, pts.length - 1)]!, q = pts[Math.max(i - 1, 0)]!;
+      let dx = n.x - q.x, dz = n.z - q.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      if (i > 0) acc += p.distanceTo(pts[i - 1]!);
+      for (const s of [-1, 1]) { const x = p.x - dz * 3.6 * s, z = p.z + dx * 3.6 * s; rp.push(x, this.heightAtRaw(x, z) + 0.08, z); ru.push(s > 0 ? 1 : 0, acc / 6); }
+      if (i > 0) { const b = (i - 1) * 2; ri.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
+    });
+    road.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); road.setAttribute('uv', new THREE.Float32BufferAttribute(ru, 2)); road.setIndex(ri); road.computeVertexNormals();
+    const dirtMesh = new THREE.Mesh(road, new THREE.MeshLambertMaterial({ map: T.dirt(), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+    dirtMesh.receiveShadow = true; this.root.add(dirtMesh);
+    // Bordes del cerro: cerca natural (anillo de colisión) con hueco hacia la entrada
+    const ring = 40;
+    for (let k = 0; k < ring; k++) {
+      const a0 = (k / ring) * Math.PI * 2, a1 = ((k + 1) / ring) * Math.PI * 2;
+      const mid = (a0 + a1) / 2; if (Math.abs(Math.atan2(Math.sin(mid + Math.PI / 2), Math.cos(mid + Math.PI / 2))) < 0.09) continue;
+      const P = (a: number, r: number) => ({ x: H.cx + Math.cos(a) * r, z: H.cz + Math.sin(a) * r });
+      this.collision.addPolygon([P(a0, H.r + 1), P(a1, H.r + 1), P(a1, H.r + 4), P(a0, H.r + 4)]);
+    }
+    // Pasillo de la entrada (muros a los lados)
+    const z0 = H.gz, z1 = H.cz - H.r + 1;
+    for (const s of [-1, 1]) this.collision.addPolygon([{ x: H.gx + s * 9, z: z0 }, { x: H.gx + s * 12, z: z0 }, { x: H.gx + s * 12, z: z1 + 3 }, { x: H.gx + s * 9, z: z1 + 3 }]);
+    const corr = new THREE.Mesh(new THREE.PlaneGeometry(18, z1 - z0 + 4).rotateX(-Math.PI / 2).translate(H.gx, 0.03, (z0 + z1) / 2), new THREE.MeshLambertMaterial({ map: T.dirt() }));
+    this.root.add(corr);
+    // Árboles sueltos y piedras en el cerro (lejos del camino)
+    this.hillTrees = [];
+    for (let i = 0, tries = 0; i < 70 && tries < 600; tries++) {
+      const a = rnd() * Math.PI * 2, r = 8 + rnd() * (H.r - 12);
+      const p = { x: H.cx + Math.cos(a) * r, z: H.cz + Math.sin(a) * r };
+      if (pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 8)) continue;
+      this.hillTrees.push(p); i++;
+    }
+  }
+  hillTrees: V2[] = [];
+  private heightAtRaw(x: number, z: number): number { return this.hillHeight(x, z); }
   readonly spawn: V2;
   readonly places: { id: string; name: string; p: V2; r: number }[] = [];
   lotsList: import('./buildings').Lot[] = [];
@@ -89,10 +166,26 @@ export class CityWorld {
     wg.setAttribute('position', new THREE.Float32BufferAttribute(built.wires, 3));
     this.root.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x3a3a3a })));
 
+    // Límites del mapa: muro bajo de tierra/vegetación (barrera natural)
+    const h = map.half;
+    // Entrada al cerro: en el borde sur, frente a la calle que más se acerca a él
+    let gx = 0, gd = Infinity;
+    for (const r of map.roads) for (const q of r.pts) if (r.sidewalk > 0 && Math.abs(q.x) < h.w - 60 && h.h - q.z < gd && q.z < h.h) { gd = h.h - q.z; gx = q.x; }
+    this.hill = { cx: gx, cz: h.h + 24 + 160, r: 160, h: 55, gx, gz: h.h };
+    const B = [{ x: -h.w, z: -h.h }, { x: h.w, z: -h.h }, { x: h.w, z: h.h }, { x: gx + 9, z: h.h }, { x: gx - 9, z: h.h }, { x: -h.w, z: h.h }];
+    for (let i = 0; i < B.length; i++) {
+      if (i === 3) continue; // hueco de la entrada al cerro
+      const a = B[i]!, b = B[(i + 1) % B.length]!;
+      const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz), nx = -dz / l, nz = dx / l;
+      // franja delgada por fuera del borde
+      this.collision.addPolygon([a, b, { x: b.x - nx * 3, z: b.z - nz * 3 }, { x: a.x - nx * 3, z: a.z - nz * 3 }]);
+    }
+    this.buildHill(rnd);
     // Utilería
     const props = this.collectProps(rnd, built.backyardTrees, built.tanks);
     props.plants = built.plants;
     props.palms.push(...built.yardPalms);
+    props.mangos.push(...this.hillTrees.slice(0, 40)); props.samans.push(...this.hillTrees.slice(40));
     // Utilería por zonas de 300 m: cámara y sombras solo dibujan los árboles/postes de las zonas visibles
     const Z = 300;
     const zk = (p: V2) => `${Math.floor(p.x / Z)},${Math.floor(p.z / Z)}`;
@@ -118,15 +211,6 @@ export class CityWorld {
     }
     this.buildLightPools(props.posts);
 
-    // Límites del mapa: muro bajo de tierra/vegetación (barrera natural)
-    const h = map.half;
-    const B = [{ x: -h.w, z: -h.h }, { x: h.w, z: -h.h }, { x: h.w, z: h.h }, { x: -h.w, z: h.h }];
-    for (let i = 0; i < 4; i++) {
-      const a = B[i]!, b = B[(i + 1) % 4]!;
-      const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz), nx = -dz / l, nz = dx / l;
-      // franja delgada por fuera del borde
-      this.collision.addPolygon([a, b, { x: b.x - nx * 3, z: b.z - nz * 3 }, { x: a.x - nx * 3, z: a.z - nz * 3 }]);
-    }
 
     // Lugares por descubrir y punto de aparición
     const plaza = map.findArea('Plaza Jose Marti');
@@ -339,6 +423,8 @@ export class CityWorld {
 
   /** Altura del suelo: aceras y plazas están 15 cm arriba de la calzada. */
   heightAt(x: number, z: number): number {
+    const hz = this.hillHeight(x, z);
+    if (hz > 0 || z > this.map.half.h) return hz;
     const near = this.map.nearestRoad(x, z, 20);
     if (!near) return 0;
     if (this.parks.some((pk) => pointInPoly(x, z, pk.poly)) && near.dist > near.road.width / 2 + near.road.sidewalk) return 0;

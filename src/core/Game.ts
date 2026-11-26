@@ -19,6 +19,9 @@ import { PostFX } from './PostFX';
 import { Places, type Action, type MenuItem } from '../world/Places';
 import { Monsters } from '../npc/Monsters';
 import { Sfx } from '../audio/Sfx';
+import { Traffic } from '../vehicle/Traffic';
+import { Vehicle } from '../vehicle/Vehicle';
+import { Race } from '../vehicle/Race';
 
 export type FlowState = 'loading' | 'menu' | 'playing' | 'paused';
 
@@ -84,6 +87,12 @@ export class Game {
   private flash!: THREE.Sprite;
   private flashT = 0;
   private horror = false;
+  private traffic!: Traffic;
+  private race!: Race;
+  private vehicle: Vehicle | null = null;
+  private notSeenT = 0;
+  private arrestT = 0;
+  private raceLock = false;
   private actionT = 0;
   private combo = 0;
   private punchCd = 0;
@@ -154,7 +163,7 @@ export class Game {
       ['Leyendo el mapa de OpenStreetMap', async () => { data = (await import('../../data/trigal-sur.json')).default as unknown as OsmData; }],
       ['Trazando las calles', () => { this.map = new CityMap(data); }],
       ['Construyendo El Trigal Sur', () => { this.world = new CityWorld(this.map, this.scene, this.save.settings.shadows); }],
-      ['Dibujando el minimapa', () => { this.minimap = new Minimap(this.ui.minimap, this.map, this.world.lotsList); }],
+      ['Dibujando el minimapa', () => { this.minimap = new Minimap(this.ui.minimap, this.map, this.world.lotsList, { ...this.world.hill, path: this.world.racePath }); }],
       ['Creando a Joan', () => {
         this.joan = new Avatar(joanParams(), true);
         this.player.object.add(this.joan.object);
@@ -163,7 +172,8 @@ export class Game {
       }],
       ['Abriendo casas, abastos y el gimnasio', () => { this.places = new Places(this.world); this.scene.add(this.places.group); this.pickups.resolver = (q) => { this.world.collision.resolve(q, 0.6); }; this.seedPickups(); }],
       ['Algo despierta en la noche', () => { this.monsters = new Monsters(this.world, this.pickups); this.scene.add(this.monsters.group); this.monsters.onGroan = (d) => this.sfx.groan(d); this.setupShotgun(); }],
-      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.npcs.cap = this.save.settings.quality === 'baja' ? 20 : this.save.settings.quality === 'media' ? 40 : 60; this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, this.npcs.cap - 5); }],
+      ['Sacando los carros a la calle', () => {}],
+      ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.npcs.cap = this.save.settings.quality === 'baja' ? 20 : this.save.settings.quality === 'media' ? 40 : 60; this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, this.npcs.cap - 5); this.setupVehicles(); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
     ];
     for (let i = 0; i < tasks.length; i++) {
@@ -272,6 +282,8 @@ export class Game {
   }
 
   private die(): void {
+    if (this.vehicle) this.exitVehicle(true);
+    this.traffic.wanted = 0;
     this.deadTimer = 4;
     this.joan.play('death', 0.1, true);
     this.action = 'ninguna';
@@ -305,6 +317,12 @@ export class Game {
       this.input.endStep();
       return;
     }
+    // F: subir / bajar de vehículos
+    if (this.input.wasPressed('KeyF') && !this.cam.inIntro && !this.raceLock) {
+      if (this.vehicle) this.exitVehicle();
+      else if (!this.outside) { const v = this.traffic.nearestEnterable(this.player.pos, 3.2); if (v) this.enterVehicle(v); }
+    }
+    if (this.vehicle) { this.stepVehicle(dt); return; }
     // 1. Entrada
     const axes = this.cam.inIntro ? { x: 0, y: 0 } : this.input.axes();
     const moving = axes.x !== 0 || axes.y !== 0;
@@ -339,6 +357,7 @@ export class Game {
       else if (this.input.wasPressed('KeyE') || moving) { this.menu = null; this.ui.hideMenu(); }
     }
     // E: entrar/salir, comprar, gimnasio; si no, saludar o sentarse
+    else if (this.input.wasPressed('KeyE') && this.race.near(this.player.pos)) { const m = this.race.start(); this.enterVehicle(m); this.raceLock = true; }
     else if (this.input.wasPressed('KeyE') && place && !['golpe', 'comer'].includes(this.action)) this.doPlace(place);
     else if (this.input.wasPressed('KeyE') && this.action !== 'golpe') {
       const bench = this.world.benches.find((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4);
@@ -435,7 +454,9 @@ export class Game {
     this.hint = '';
     this.shotgunStep(dt);
     if (this.menu) this.hint = '';
+    else if (this.race.near(this.player.pos)) this.hint = 'E: Carrera de motos cuesta abajo ($100 al primero)';
     else if (place && !['pesas', 'trotadora'].includes(this.action)) this.hint = place.label;
+    else if (!this.outside && this.traffic.nearestEnterable(this.player.pos, 3.2)) { const v = this.traffic.nearestEnterable(this.player.pos, 3.2)!; this.hint = v.driver && v.driver !== 'jugador' ? 'F: Sacar al conductor y robar el vehículo' : v.kind === 'heli' ? 'F: Pilotar el helicóptero' : 'F: Subir'; }
     else if (this.action === 'pesas' || this.action === 'trotadora') this.hint = 'Muévete para terminar';
     else if (this.action !== 'sentado') {
       if (this.npcs.nearest(this.player.pos, 3.5)) this.hint = 'E: Saludar';
@@ -459,6 +480,7 @@ export class Game {
       notify: (h) => this.ui.toast(h, 3),
     });
     this.world.collision.resolve(this.player.pos, CONFIG.player.radius);
+    this.sharedStep(dt);
     this.input.endStep();
   }
 
@@ -473,7 +495,11 @@ export class Game {
     const speed = Math.hypot(this.player.vel.x, this.player.vel.z);
     if (playing) this.animatePlayer(frameDt, speed);
     this.ui.setAim(this.cam.aim && playing);
-    this.cam.update(frameDt, this.player.object.position, speed > CONFIG.player.speeds.jog + 0.5, speed > 0.3, this.player.facing);
+    if (this.vehicle) {
+      const v = this.vehicle;
+      this.cam.vehicle = v.kind === 'heli' ? { dist: 15, height: 3 } : v.kind === 'moto' ? { dist: 5, height: 1.3 } : { dist: 7, height: 1.6 };
+      this.cam.update(frameDt, v.object.position, Math.abs(v.speed) > 18, Math.abs(v.speed) > 1, v.heading);
+    } else { this.cam.vehicle = null; this.cam.update(frameDt, this.player.object.position, speed > CONFIG.player.speeds.jog + 0.5, speed > 0.3, this.player.facing); }
     this.hours = (CONFIG.day.startHour + (this.gameTime / CONFIG.day.realSecondsPerDay) * 24) % 24;
     this.world.horror = this.horror && !this.outside;
     this.night = this.world.update(this.hours, this.player.pos);
@@ -487,9 +513,11 @@ export class Game {
     if (playing) {
       this.ui.updateHud({ hours: this.hours, health: this.vitals.health, shield: this.vitals.shield, stamina: this.stamina, hint: this.hint, money: this.money });
       this.ui.setAmmo(this.hasShotgun ? this.ammo : null);
+      this.ui.setWanted(this.traffic.wanted);
+      this.ui.setSpeed(this.vehicle ? Math.abs(this.vehicle.speed) * 3.6 : null);
       this.ui.minimap.style.visibility = this.outside ? 'hidden' : 'visible';
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
-      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...(this.horror && !this.hasShotgun && this.shotgunSpot ? [{ x: this.shotgunSpot.x, z: this.shotgunSpot.z, color: '#ff8020' }] : [])]);
+      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...this.traffic.positions(), ...(this.race.state === 'libre' ? [{ x: this.race.marker.x, z: this.race.marker.z, color: '#40c0ff' }] : []), ...(this.horror && !this.hasShotgun && this.shotgunSpot ? [{ x: this.shotgunSpot.x, z: this.shotgunSpot.z, color: '#ff8020' }] : [])]);
       this.saveTimer += frameDt;
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }
@@ -506,6 +534,7 @@ export class Game {
   private animatePlayer(dt: number, speed: number): void {
     const j = this.joan;
     if (this.vitals.dead) { j.update(dt); return; }
+    if (this.vehicle) { if (this.vehicle.kind === 'moto') j.play('ride', 0.2); j.update(dt); return; }
     this.landT -= dt;
     const oneShot = (['golpe', 'saludar', 'comer', 'disparo'].includes(this.action) || this.landT > 0) && !j.finished;
     if (!oneShot) {
@@ -594,6 +623,147 @@ export class Game {
     }
   }
 
+  // ---------- Vehículos ----------
+  private setupVehicles(): void {
+    this.traffic = new Traffic(this.world, this.npcs);
+    this.traffic.cap = this.save.settings.quality === 'baja' ? 6 : this.save.settings.quality === 'media' ? 12 : 18;
+    this.scene.add(this.traffic.group);
+    this.traffic.onNotice = (h) => this.ui.toast(h, 3);
+    this.traffic.onFire = (v) => { if (v === this.vehicle) this.ui.toast('<b>¡Se está incendiando!</b>Bájate con F antes de que explote', 4); };
+    this.traffic.onExplode = (p) => {
+      this.sfx.shotgun();
+      const d = p.distanceTo(this.player.pos);
+      if (d < 7) this.hurt(this.vehicle && this.vehicle.pos.distanceTo(p) < 1 ? 75 : (7 - d) * 12, 'fuego');
+    };
+    // Delitos -> nivel de búsqueda
+    this.npcs.onCrime = (type, kind) => {
+      const cop = kind === 'policia';
+      const witnesses = this.npcs.npcs.some((n) => n.kind === 'policia' && n.state !== 'muerto' && n.pos.distanceTo(this.player.pos) < 40);
+      this.traffic.addWanted(type === 'muerte' ? (cop ? 2 : 1) : cop ? 1 : witnesses ? 0.5 : 0.25);
+    };
+    // Helicóptero en un helipuerto cerca del C.C. (o de la plaza)
+    const mall = this.world.places.find((p) => /Trigaleña|C\.C\./.test(p.name)) ?? this.world.places[0]!;
+    for (let k = 0; k < 300; k++) {
+      const a = k * 2.399, r = 15 + k * 0.4, x = mall.p.x + Math.cos(a) * r, z = mall.p.z + Math.sin(a) * r;
+      if (this.world.map.onRoadCorridor(x, z, 6) || this.world.collision.resolve({ x, z }, 6.5)) continue;
+      const h = new Vehicle('heli'); h.place(x, z, 0, this.world); h.playerOwned = true; this.traffic.add(h);
+      const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d')!;
+      g.fillStyle = '#3a3a3c'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); g.strokeStyle = '#f0f0f0'; g.lineWidth = 6; g.beginPath(); g.arc(64, 64, 52, 0, 7); g.stroke();
+      g.fillStyle = '#f0d020'; g.font = 'bold 70px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('H', 64, 68);
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(6, 32).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(c) }));
+      pad.position.set(x, this.world.heightAt(x, z) + 0.04, z); this.scene.add(pad);
+      break;
+    }
+    this.race = new Race(this.world, this.traffic, this.scene);
+  }
+
+  private enterVehicle(v: Vehicle): void {
+    this.traffic.carjack(v);
+    if (v.driver !== 'jugador') v.driver = 'jugador';
+    this.vehicle = v;
+    this.action = 'ninguna'; this.menu = null; this.ui.hideMenu();
+    this.player.object.remove(this.joan.object);
+    if (v.kind === 'moto') { v.object.add(this.joan.object); this.joan.object.position.set(0, 0.32, -0.25); this.joan.object.rotation.set(0, 0, 0); this.joan.object.visible = true; }
+    else this.joan.object.visible = false;
+    this.cam.yaw = v.heading + Math.PI;
+  }
+
+  private exitVehicle(force = false): void {
+    const v = this.vehicle; if (!v) return;
+    if (!force && v.kind === 'heli' && v.alt > 1.2) { this.ui.toast('<b>Aterriza primero</b>', 1.5); return; }
+    if (!force && Math.abs(v.speed) > 6) { this.ui.toast('<b>Frena para bajarte</b>', 1.5); return; }
+    v.object.remove(this.joan.object);
+    this.player.object.add(this.joan.object);
+    this.joan.object.position.set(0, 0, 0); this.joan.object.visible = true;
+    const d = v.doorPoint();
+    this.player.pos.set(d.x, this.world.heightAt(d.x, d.z), d.z);
+    this.world.collision.resolve(this.player.pos, CONFIG.player.radius);
+    this.player.prevPos.copy(this.player.pos); this.player.vel.set(0, 0, 0);
+    this.player.facing = this.player.prevFacing = v.heading;
+    v.driver = null; v.speed = 0; v.playerOwned = true;
+    this.vehicle = null; this.raceLock = false;
+  }
+
+  private stepVehicle(dt: number): void {
+    const v = this.vehicle!;
+    const k = (a: string, b?: string) => (this.input.isDown(a) || (b ? this.input.isDown(b) : false) ? 1 : 0);
+    const lock = this.race.state === 'cuenta' && v === this.race.playerMoto;
+    const ctrl = {
+      throttle: lock ? 0 : k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'),
+      steer: k('KeyA', 'ArrowLeft') - k('KeyD', 'ArrowRight'),
+      handbrake: v.kind !== 'heli' && (lock || this.input.isDown('Space')),
+      up: k('Space') - k('ShiftLeft', 'ShiftRight'),
+    };
+    v.step(dt, ctrl, this.world);
+    if (v.impact > 6) { this.hurt((v.impact - 6) * 2.5, 'choque'); if (v.kind === 'moto' && v.impact > 13) { this.ui.toast('<b>¡Te caíste de la moto!</b>', 2); this.exitVehicle(true); } }
+    if (!this.vehicle) { this.sharedStep(dt); this.input.endStep(); return; }
+    this.player.prevPos.copy(this.player.pos);
+    this.player.pos.copy(v.pos);
+    this.player.facing = this.player.prevFacing = v.heading;
+    this.player.vel.set(0, 0, 0);
+    this.hint = v.kind === 'heli' ? 'Espacio: subir · Shift: bajar · F: bajarse (en tierra)' : this.raceLock ? '' : 'F: Bajarse';
+    if (v.wrecked) this.exitVehicle(true);
+    this.sharedStep(dt);
+    this.input.endStep();
+  }
+
+  /** NPC, tráfico, policía, criaturas y carrera (a pie o en vehículo). */
+  private sharedStep(dt: number): void {
+    if (this.outside) return;
+    if (this.vehicle) {
+      this.npcs.update(dt, { pos: this.player.pos, dead: this.vitals.dead, money: this.money, hurt: () => {}, rob: () => {}, notify: () => {} });
+      this.monsters.update(dt, this.horror, { pos: this.player.pos, dead: this.vitals.dead, hurt: (a) => this.hurt(a, 'golpe') });
+    }
+    this.traffic.update(dt, { pos: this.player.pos, vehicle: this.vehicle, onFoot: !this.vehicle });
+    // Carros que golpean a Joan a pie
+    if (!this.vehicle && !this.vitals.dead) for (const v of this.traffic.list) {
+      if (Math.abs(v.speed) < 4 || v.kind === 'heli') continue;
+      const d = Math.hypot(v.pos.x - this.player.pos.x, v.pos.z - this.player.pos.z);
+      if (d < v.spec.radius + 0.6) {
+        const f = v.fwd; this.player.pos.x += f.x * 2 * Math.sign(v.speed); this.player.pos.z += f.z * 2 * Math.sign(v.speed);
+        this.world.collision.resolve(this.player.pos, CONFIG.player.radius);
+        this.hurt(Math.abs(v.speed) * 4, 'atropello'); v.speed *= 0.4;
+      }
+    }
+    // Policía: se bajan de la patrulla y arrestan; la búsqueda baja si no te ven
+    const tf = this.traffic;
+    if (tf.wanted > 0) {
+      let seen = false;
+      for (const v of tf.list) if (v.driver === 'policia' && v.pos.distanceTo(this.player.pos) < 55) {
+        seen = true;
+        if (!this.vehicle && v.pos.distanceTo(this.player.pos) < 14 && Math.abs(v.speed) < 3 && !v.wrecked && this.npcs.npcs.filter((n) => n.kind === 'policia' && n.state !== 'muerto').length < 3) {
+          const d = v.doorPoint(); this.npcs.spawnCop({ x: d.x, z: d.z }); v.driver = null; v.pursuit = false;
+        }
+      }
+      const cops = this.npcs.npcs.filter((n) => n.kind === 'policia' && n.state !== 'muerto');
+      if (cops.some((n) => n.pos.distanceTo(this.player.pos) < 45)) seen = true;
+      this.notSeenT = seen ? 0 : this.notSeenT + dt;
+      if (this.notSeenT > 20) { tf.wanted = Math.max(0, Math.ceil(tf.wanted) - 1); this.notSeenT = 0; this.ui.toast(tf.wanted ? '<b>La policía te pierde el rastro</b>' : '<b>Ya no te buscan</b>', 2.5); }
+      const close = this.vehicle ? tf.list.some((v) => v.driver === 'policia' && v.pos.distanceTo(this.player.pos) < 5) && Math.abs(this.vehicle.speed) < 1 : cops.some((n) => n.pos.distanceTo(this.player.pos) < 1.4);
+      this.arrestT = close ? this.arrestT + dt : Math.max(0, this.arrestT - dt);
+      if (this.arrestT > (this.vehicle ? 3 : 2.5)) this.arrest();
+    }
+    // Carrera
+    const r = this.race.update(dt, this.vehicle);
+    this.ui.setBanner(r.banner ?? '');
+    if (r.result) {
+      if (r.result.won) { this.money += 100; this.ui.toast('<b>¡GANASTE LA CARRERA!</b>+$100', 5); }
+      else if (r.result.place > 0) this.ui.toast(`<b>Llegaste de ${r.result.place}º</b>Inténtalo otra vez`, 4);
+      else this.ui.toast('<b>Descalificado</b>Te saliste de la ruta', 3);
+      this.raceLock = false;
+    }
+  }
+
+  private arrest(): void {
+    if (this.vehicle) this.exitVehicle(true);
+    const lost = Math.floor(this.money * 0.2);
+    this.money -= lost;
+    this.traffic.wanted = 0; this.arrestT = 0;
+    this.ui.toast(`<b>¡ARRESTADO!</b>Multa: $${lost}. Te soltaron en la plaza`, 5);
+    const s = this.world.spawn;
+    this.player.pos.set(s.x, this.world.heightAt(s.x, s.z), s.z); this.player.prevPos.copy(this.player.pos);
+  }
+
   // ---------- Escopeta ----------
   private setupShotgun(): void {
     const gun = () => {
@@ -680,7 +850,7 @@ export class Game {
       stats: this.world.stats, pickups: this.pickups.count, npcs: this.npcs.count, places: this.world.places.map((p) => p.name),
     };
   }
-  get debugExtra() { return { inside: this.places.insideKind, monsters: this.monsters.count, ammo: this.ammo, shotgun: this.hasShotgun, strength: this.strength, action: this.action, menu: !!this.menu }; }
+  get debugExtra() { return { vehicle: this.vehicle?.kind ?? null, vspeed: this.vehicle?.speed ?? 0, wanted: this.traffic.wanted, cars: this.traffic.list.length, race: this.race.state, inside: this.places.insideKind, monsters: this.monsters.count, ammo: this.ammo, shotgun: this.hasShotgun, strength: this.strength, action: this.action, menu: !!this.menu }; }
   debugSetHour(h: number): void { this.gameTime = ((h - CONFIG.day.startHour + 24) % 24) / 24 * CONFIG.day.realSecondsPerDay; }
   debugTeleport(x: number, z: number, yaw: number, pitchDeg = 15, dist = 1): void {
     this.player.pos.set(x, this.world.heightAt(x, z), z); this.player.prevPos.copy(this.player.pos);

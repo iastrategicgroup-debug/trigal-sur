@@ -55,7 +55,9 @@ trigal-sur/
 11. **Cerro escalable con carrera de motos cuesta abajo**: premio de $100 si llegas primero (fase 6, con las motos).
 12. **Casas en las que se entra, con NPC adentro** ✅ (interiores aparte, como en los juegos de la época).
 13. **Camiones de comida rápida** (comprar y comer), **tiendas** en las que se entra y **gimnasio** (Gimnasio Olimpus de OSM) con animaciones de levantar pesas, comer y cansarse (fase 6).
-14. **Tráfico con semáforos y policía**: los delitos (golpes, robos, atropellos) suben un nivel de búsqueda; la policía persigue y arresta (fase 6).
+14. **Tráfico con semáforos y policía** ✅: carril derecho, sentido de las vías, semáforos en las avenidas; delitos suben estrellas; patrullas persiguen, policías se bajan y arrestan.
+16. **Vehículos** ✅: carros, motos, helicóptero; robo de carros (Joan y los ladrones sacan al conductor); choques, humo, fuego y explosión.
+17. **Cerro y carrera de motos** ✅: cerro ficticio al sur (fuera del mapa real) con camino en espiral; 3 rivales; $100 al primero.
 
 ## Decisiones menores
 
