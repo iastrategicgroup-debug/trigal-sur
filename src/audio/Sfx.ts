@@ -26,6 +26,25 @@ export class Sfx {
     o.connect(og).connect(c.destination); o.start(); o.stop(c.currentTime + 0.4);
   }
 
+  /** Disparo corto (pistola o AK); `vol` según la distancia. */
+  shot(kind: 'pistola' | 'ak', vol = 1): void {
+    const c = this.ctx; const n = this.noise(kind === 'ak' ? 0.18 : 0.25); if (!c || !n || vol < 0.02) return;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = kind === 'ak' ? 1400 : 2200; f.Q.value = 0.7;
+    const g = c.createGain(); g.gain.value = (kind === 'ak' ? 0.6 : 0.5) * this.volume * vol;
+    n.connect(f).connect(g).connect(c.destination); n.start();
+  }
+
+  /** Latido (miedo): dos golpes graves. */
+  heartbeat(intensity: number): void {
+    const c = this.ctx; if (!c) return;
+    for (const dt of [0, 0.22]) {
+      const o = c.createOscillator(); o.frequency.value = 52;
+      const g = c.createGain(); const t = c.currentTime + dt;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5 * intensity * this.volume, t + 0.03); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.25);
+    }
+  }
+
   groan(dist: number): void {
     const c = this.ctx; if (!c) return;
     const vol = Math.max(0, 1 - dist / 60) * 0.35 * this.volume;

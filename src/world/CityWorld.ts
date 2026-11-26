@@ -485,6 +485,9 @@ export class CityWorld {
     return night;
   }
 
+  /** Faroles que parpadean (noche de terror). */
+  flicker(off: boolean): void { if (this.lampMat) this.lampMat.color.setHex(off ? 0x101010 : 0xffe0a0); if (this.poolMat) this.poolMat.opacity = off ? 0.05 : 0.7; }
+
   setShadows(on: boolean, size = 1024): void {
     this.sun.castShadow = on;
     if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget; }

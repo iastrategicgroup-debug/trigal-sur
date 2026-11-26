@@ -22,6 +22,7 @@ import { Sfx } from '../audio/Sfx';
 import { Traffic } from '../vehicle/Traffic';
 import { Vehicle } from '../vehicle/Vehicle';
 import { Race } from '../vehicle/Race';
+import { WEAPONS, gunModel, GunFx, type WeaponId } from '../player/Weapons';
 
 export type FlowState = 'loading' | 'menu' | 'playing' | 'paused';
 
@@ -78,14 +79,15 @@ export class Game {
   private repT = 0;
   private strength = 0;
   private endurance = 0;
-  private hasShotgun = false;
-  private ammo = 0;
-  private shotgunSpot: THREE.Vector3 | null = null;
-  private shotgunPickup!: THREE.Group;
-  private gunModel!: THREE.Group;
+  /** Arsenal de Joan: arma actual, balas en el cargador y de reserva. */
+  private weapon: WeaponId = 'pistola';
+  private mag: Record<string, number> = { pistola: 15, escopeta: 6, ak: 30 };
+  private reserve: Record<string, number> = { pistola: 90, escopeta: 30, ak: 240 };
+  private guns: Record<string, { group: THREE.Group; muzzle: THREE.Object3D }> = {};
+  private gunFx = new GunFx();
+  private reloadT = 0;
+  private heartT = 0;
   private gunCd = 0;
-  private flash!: THREE.Sprite;
-  private flashT = 0;
   private horror = false;
   private traffic!: Traffic;
   private race!: Race;
@@ -105,7 +107,7 @@ export class Game {
     this.save = loadSave();
     this.money = (this.save as SaveData & { money?: number }).money ?? 0;
     const ex = this.save as SaveData & { strength?: number; endurance?: number; shotgun?: boolean; ammo?: number };
-    this.strength = ex.strength ?? 0; this.endurance = ex.endurance ?? 0; this.hasShotgun = ex.shotgun ?? false; this.ammo = ex.ammo ?? 0;
+    this.strength = ex.strength ?? 0; this.endurance = ex.endurance ?? 0; const wx = this.save as SaveData & { mag?: Record<string, number>; reserve?: Record<string, number> }; if (wx.mag) this.mag = wx.mag; if (wx.reserve) this.reserve = wx.reserve;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.info.autoReset = false; // con postproceso hay varias pasadas: se reinicia una vez por cuadro
@@ -171,7 +173,7 @@ export class Game {
         this.restorePosition();
       }],
       ['Abriendo casas, abastos y el gimnasio', () => { this.places = new Places(this.world); this.scene.add(this.places.group); this.pickups.resolver = (q) => { this.world.collision.resolve(q, 0.6); }; this.seedPickups(); }],
-      ['Algo despierta en la noche', () => { this.monsters = new Monsters(this.world, this.pickups); this.scene.add(this.monsters.group); this.monsters.onGroan = (d) => this.sfx.groan(d); this.setupShotgun(); }],
+      ['Algo despierta en la noche', () => { this.monsters = new Monsters(this.world, this.pickups); this.scene.add(this.monsters.group); this.monsters.onGroan = (d) => this.sfx.groan(d); this.setupWeapons(); }],
       ['Sacando los carros a la calle', () => {}],
       ['Llenando las calles de gente', () => { this.npcs = new NpcManager(this.world, this.pickups); this.npcs.cap = this.save.settings.quality === 'baja' ? 20 : this.save.settings.quality === 'media' ? 40 : 60; this.scene.add(this.npcs.group); this.npcs.populate(this.player.pos, this.npcs.cap - 5); this.setupVehicles(); }],
       ['Compilando sombreadores', () => { this.world.update(this.hours, this.player.pos); this.renderer.compile(this.scene, this.camera); }],
@@ -267,7 +269,7 @@ export class Game {
   private persist(): void {
     this.save.position = { x: this.player.pos.x, z: this.player.pos.z, yaw: this.player.facing };
     (this.save as SaveData & { money?: number }).money = this.money;
-    Object.assign(this.save, { strength: this.strength, endurance: this.endurance, shotgun: this.hasShotgun, ammo: this.ammo });
+    Object.assign(this.save, { strength: this.strength, endurance: this.endurance, mag: this.mag, reserve: this.reserve });
     if (this.outside) this.save.position = { x: this.outside.x, z: this.outside.z, yaw: this.outside.facing };
     writeSave(this.save);
   }
@@ -336,7 +338,14 @@ export class Game {
     this.gunCd -= dt;
     const attack = this.input.wasPressed('Mouse0') || this.input.wasPressed('KeyQ');
     if (attack && this.menu) { /* menú abierto: no ataca */ }
-    else if (attack && aiming && this.hasShotgun) this.fireShotgun();
+    // Cambiar de arma: 1 pistola · 2 escopeta · 3 AK · 0 puños; R recarga
+    if (!this.menu) for (const [k, w] of [['Digit1', 'pistola'], ['Digit2', 'escopeta'], ['Digit3', 'ak'], ['Digit0', 'puños']] as const) if (this.input.wasPressed(k)) this.selectWeapon(w);
+    if (this.input.wasPressed('KeyR') && this.weapon !== 'puños') this.startReload();
+    this.reloadT -= dt;
+    const armed = this.weapon !== 'puños';
+    const trigger = armed && aiming && !this.menu && (this.input.wasPressed('Mouse0') || (this.weapon === 'ak' && this.input.isDown('Mouse0')));
+    if (trigger) this.fire();
+    else if (attack && armed && aiming) { /* gatillo sin munición o recargando */ }
     else if (attack && this.punchCd <= 0 && this.grounded && !['pesas', 'trotadora', 'comer'].includes(this.action)) {
       if (aiming) this.player.facing = this.cam.yaw + Math.PI;
       this.combo = (this.combo + 1) % 3;
@@ -361,13 +370,8 @@ export class Game {
     else if (this.input.wasPressed('KeyE') && place && !['golpe', 'comer'].includes(this.action)) this.doPlace(place);
     else if (this.input.wasPressed('KeyE') && this.action !== 'golpe') {
       const bench = this.world.benches.find((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4);
-      const npc = this.npcs.nearest(this.player.pos, 3.5);
       if (this.action === 'sentado') this.action = 'ninguna';
-      else if (npc) {
-        this.npcs.greet(npc, this.player.pos);
-        this.player.facing = Math.atan2(npc.pos.x - this.player.pos.x, npc.pos.z - this.player.pos.z);
-        this.action = 'saludar'; this.actionT = 1.6; this.joan.play('wave', 0.2, true);
-      } else if (bench) {
+      else if (bench) {
         this.player.pos.x = bench.p.x; this.player.pos.z = bench.p.z; this.player.prevPos.copy(this.player.pos);
         this.player.facing = bench.ry + Math.PI; this.action = 'sentado';
       }
@@ -428,13 +432,13 @@ export class Game {
 
     // 5. Objetos flotantes
     const got = this.pickups.update(dt, this.player.pos.x, this.player.pos.y, this.player.pos.z,
-      (k) => k === 'dinero' || (k === 'municion' && this.hasShotgun) || (k === 'salud' && this.vitals.health < 100) || (k === 'escudo' && this.vitals.shield < 100));
+      (k) => k === 'dinero' || k === 'municion' || (k === 'salud' && this.vitals.health < 100) || (k === 'escudo' && this.vitals.shield < 100));
     if (got.length) this.tut.picked = true;
     for (const g of got) {
       if (g.kind === 'dinero') { this.money += g.amount; this.ui.toast(`<b>+$${g.amount}</b>`, 1.5); }
       if (g.kind === 'salud') { this.vitals.health = Math.min(100, this.vitals.health + g.amount); this.ui.toast('<b>+Salud</b>', 1.5); }
       if (g.kind === 'escudo') { this.vitals.addShield(g.amount); this.ui.toast('<b>+Escudo</b>', 1.5); }
-      if (g.kind === 'municion') { this.ammo += g.amount; this.ui.toast(`<b>+${g.amount} cartuchos</b>`, 1.5); }
+      if (g.kind === 'municion') { const w = this.weapon === 'puños' ? 'escopeta' : this.weapon; const n = w === 'ak' ? g.amount * 8 : w === 'pistola' ? g.amount * 4 : g.amount; this.reserve[w] = (this.reserve[w] ?? 0) + n; this.ui.toast(`<b>+${n} balas</b>${WEAPONS[w].name}`, 1.5); }
     }
 
     // 6. Lugares por descubrir
@@ -452,15 +456,13 @@ export class Game {
       writeSave(this.save);
     }
     this.hint = '';
-    this.shotgunStep(dt);
     if (this.menu) this.hint = '';
     else if (this.race.near(this.player.pos)) this.hint = 'E: Carrera de motos cuesta abajo ($100 al primero)';
     else if (place && !['pesas', 'trotadora'].includes(this.action)) this.hint = place.label;
     else if (!this.outside && this.traffic.nearestEnterable(this.player.pos, 3.2)) { const v = this.traffic.nearestEnterable(this.player.pos, 3.2)!; this.hint = v.driver && v.driver !== 'jugador' ? 'F: Sacar al conductor y robar el vehículo' : v.kind === 'heli' ? 'F: Pilotar el helicóptero' : 'F: Subir'; }
     else if (this.action === 'pesas' || this.action === 'trotadora') this.hint = 'Muévete para terminar';
     else if (this.action !== 'sentado') {
-      if (this.npcs.nearest(this.player.pos, 3.5)) this.hint = 'E: Saludar';
-      else if (this.world.benches.some((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4)) this.hint = 'E: Sentarse';
+      if (this.world.benches.some((b) => Math.hypot(b.p.x - this.player.pos.x, b.p.z - this.player.pos.z) < 1.4)) this.hint = 'E: Sentarse';
     } else this.hint = 'E o moverse: Levantarse';
     // NPC y tráfico (después de las colisiones del jugador)
     // Noche de terror: de 20:00 a 5:00 salen criaturas
@@ -468,7 +470,7 @@ export class Game {
     const horror = nightNow && !this.outside;
     if (nightNow !== this.horror) {
       this.horror = nightNow;
-      if (nightNow) this.ui.toast(this.hasShotgun ? '<b>Cae la noche…</b>Algo se mueve en la niebla' : '<b>Cae la noche…</b>Algo se mueve en la niebla. Busca la escopeta (marcada en el mapa)', 6);
+      if (nightNow) this.ui.toast('<b>Cae la noche…</b>Algo se mueve en la niebla. Prepara las armas', 6);
       else this.ui.toast('<b>Amanece</b>Las criaturas se deshacen con la luz', 4);
     }
     this.npcs.max = nightNow ? Math.min(12, this.npcs.cap) : this.npcs.cap;
@@ -478,6 +480,7 @@ export class Game {
       hurt: (a, src) => this.hurt(a, src),
       rob: (a) => { this.money = Math.max(0, this.money - a); },
       notify: (h) => this.ui.toast(h, 3),
+      wanted: this.traffic.wanted, copShot: (a, b, h) => this.copShot(a, b, h),
     });
     this.world.collision.resolve(this.player.pos, CONFIG.player.radius);
     this.sharedStep(dt);
@@ -509,15 +512,24 @@ export class Game {
       fog.color.setRGB(0.07, 0.075, 0.08); fog.near = 4; fog.far = 58;
     }
     this.places.update(frameDt, this.gameTime);
-    this.flashT -= frameDt; this.flash.visible = this.flashT > 0;
+    this.gunFx.update(frameDt);
+    // Arma visible en la mano (no en vehículos)
+    for (const [id, g] of Object.entries(this.guns)) g.group.visible = id === this.weapon && !this.vehicle;
+    // Terror: latidos cuando una criatura se acerca; faroles que parpadean
+    if (this.horror && !this.outside && playing) {
+      const d = this.monsters.nearestDist(this.player.pos);
+      this.heartT -= frameDt;
+      if (d < 22 && this.heartT <= 0) { this.sfx.heartbeat(1 - d / 22); this.heartT = 0.45 + (d / 22) * 0.8; }
+      this.world.flicker(Math.random() < 0.06);
+    }
     if (playing) {
       this.ui.updateHud({ hours: this.hours, health: this.vitals.health, shield: this.vitals.shield, stamina: this.stamina, hint: this.hint, money: this.money });
-      this.ui.setAmmo(this.hasShotgun ? this.ammo : null);
+      this.ui.setAmmo(this.weapon === 'puños' ? 'Puños' : `${WEAPONS[this.weapon].name} · ${this.reloadT > 0 ? 'recargando' : this.mag[this.weapon]}/${this.reserve[this.weapon]}`);
       this.ui.setWanted(this.traffic.wanted);
       this.ui.setSpeed(this.vehicle ? Math.abs(this.vehicle.speed) * 3.6 : null);
       this.ui.minimap.style.visibility = this.outside ? 'hidden' : 'visible';
       this.ui.street(this.world.streetName(this.player.pos.x, this.player.pos.z), frameDt);
-      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...this.traffic.positions(), ...(this.race.state === 'libre' ? [{ x: this.race.marker.x, z: this.race.marker.z, color: '#40c0ff' }] : []), ...(this.horror && !this.hasShotgun && this.shotgunSpot ? [{ x: this.shotgunSpot.x, z: this.shotgunSpot.z, color: '#ff8020' }] : [])]);
+      this.minimap.draw(this.player.pos.x, this.player.pos.z, this.cam.yaw, this.player.facing, [...this.pickups.positions(), ...this.npcs.positions(), ...this.places.mapMarkers(), ...this.monsters.positions(), ...this.traffic.positions(), ...(this.race.state === 'libre' ? [{ x: this.race.marker.x, z: this.race.marker.z, color: '#40c0ff' }] : [])]);
       this.saveTimer += frameDt;
       if (this.saveTimer > 5) { this.saveTimer = 0; this.persist(); }
     }
@@ -546,7 +558,7 @@ export class Game {
       else if (speed > 4.6) { j.play('run'); j.setGaitSpeed(speed); }
       else if (speed > 2.2) { j.play('jog'); j.setGaitSpeed(speed); }
       else if (speed > 0.25) { j.play('walk'); j.setGaitSpeed(speed); }
-      else if (this.cam.aim) j.play(this.hasShotgun ? 'aimGun' : 'guard', 0.15);
+      else if (this.cam.aim) j.play(this.weapon !== 'puños' ? 'aimGun' : 'guard', 0.15);
       else {
         // Reposo; tras 8 s sin entrada, mira alrededor / revisa el reloj
         this.idleT += dt;
@@ -711,7 +723,7 @@ export class Game {
   private sharedStep(dt: number): void {
     if (this.outside) return;
     if (this.vehicle) {
-      this.npcs.update(dt, { pos: this.player.pos, dead: this.vitals.dead, money: this.money, hurt: () => {}, rob: () => {}, notify: () => {} });
+      this.npcs.update(dt, { pos: this.player.pos, dead: this.vitals.dead, money: this.money, hurt: (a) => this.hurt(a * 0.6, 'golpe'), rob: () => {}, notify: () => {}, wanted: this.traffic.wanted, copShot: (a, b, h) => this.copShot(a, b, h) });
       this.monsters.update(dt, this.horror, { pos: this.player.pos, dead: this.vitals.dead, hurt: (a) => this.hurt(a, 'golpe') });
     }
     this.traffic.update(dt, { pos: this.player.pos, vehicle: this.vehicle, onFoot: !this.vehicle });
@@ -764,64 +776,78 @@ export class Game {
     this.player.pos.set(s.x, this.world.heightAt(s.x, s.z), s.z); this.player.prevPos.copy(this.player.pos);
   }
 
-  // ---------- Escopeta ----------
-  private setupShotgun(): void {
-    const gun = () => {
-      const g = new THREE.Group();
-      const metal = new THREE.MeshLambertMaterial({ color: 0x1e1e20 }), wood = new THREE.MeshLambertMaterial({ color: 0x5a3418 });
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.62, 8), metal); barrel.position.y = -0.31;
-      const barrel2 = barrel.clone(); barrel2.position.x = 0.036;
-      const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.18, 8), wood); pump.position.set(0.018, -0.36, 0.025);
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.07), metal); body.position.set(0.018, 0.05, 0);
-      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.32, 0.09), wood); stock.position.set(0.018, 0.26, -0.02); stock.rotation.x = 0.2;
-      g.add(barrel, barrel2, pump, body, stock);
-      return g;
-    };
-    // Escondida en un terreno baldío
-    const lot = this.world.lotsList.find((l) => l.kind === 'baldio' && Math.abs(l.c.x) < 400) ?? this.world.lotsList.find((l) => l.kind === 'baldio');
-    const spot = lot ? { x: lot.c.x, z: lot.c.z } : { x: this.world.spawn.x + 20, z: this.world.spawn.z };
-    this.shotgunSpot = new THREE.Vector3(spot.x, this.world.heightAt(spot.x, spot.z), spot.z);
-    this.shotgunPickup = gun();
-    this.shotgunPickup.rotation.z = Math.PI / 2;
-    this.shotgunPickup.position.copy(this.shotgunSpot).add(new THREE.Vector3(0, 0.9, 0));
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff8020, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
-    glow.scale.setScalar(1.6); this.shotgunPickup.add(glow);
-    this.scene.add(this.shotgunPickup);
-    this.shotgunPickup.visible = !this.hasShotgun;
-    // En la mano de Joan
-    this.gunModel = gun();
-    this.gunModel.rotation.set(0, 0, 0);
-    this.gunModel.position.set(0, -0.06, 0.02);
-    this.joan.bones.hand_R.add(this.gunModel);
-    this.gunModel.visible = this.hasShotgun;
-    this.flash = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffd080, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    this.flash.scale.setScalar(0.7); this.flash.position.set(0.018, -0.7, 0); this.flash.visible = false;
-    this.gunModel.add(this.flash);
-  }
-
-  private shotgunStep(dt: number): void {
-    if (this.hasShotgun || !this.shotgunSpot) return;
-    this.shotgunPickup.rotation.y += dt * 1.5;
-    this.shotgunPickup.position.y = this.shotgunSpot.y + 0.9 + Math.sin(this.gameTime * 2.5) * 0.12;
-    if (Math.hypot(this.player.pos.x - this.shotgunSpot.x, this.player.pos.z - this.shotgunSpot.z) < 1.3) {
-      this.hasShotgun = true; this.ammo += 12;
-      this.shotgunPickup.visible = false; this.gunModel.visible = true;
-      this.ui.toast('<b>¡Escopeta!</b>Mantén clic derecho para apuntar y clic izquierdo para disparar', 5);
-      this.persist();
+  // ---------- Armas ----------
+  private setupWeapons(): void {
+    for (const id of ['pistola', 'escopeta', 'ak'] as const) {
+      const g = gunModel(id);
+      this.joan.bones.hand_R.add(g.group);
+      this.guns[id] = g;
     }
+    this.scene.add(this.gunFx.group);
   }
 
-  private fireShotgun(): void {
-    if (this.gunCd > 0) return;
-    if (this.ammo <= 0) { this.ui.toast('<b>Sin munición</b>Las criaturas sueltan cartuchos', 2); this.gunCd = 0.5; return; }
-    this.ammo--; this.gunCd = 0.95;
-    this.action = 'disparo'; this.actionT = 0.45;
-    this.joan.play('shoot', 0.04, true);
-    this.sfx.shotgun();
-    this.flashT = 0.06;
-    const dir = new THREE.Vector3(); this.camera.getWorldDirection(dir);
-    this.monsters.shoot(this.camera.position.clone(), dir, this.player.pos);
-    this.cam.pitch = Math.min(this.cam.pitch + 0.035, 1.0); // retroceso
+  private selectWeapon(w: WeaponId): void {
+    if (w === this.weapon) return;
+    this.weapon = w; this.reloadT = 0;
+    this.ui.toast(`<b>${w === 'puños' ? 'Puños' : WEAPONS[w].name}</b>`, 1);
+  }
+
+  private startReload(): void {
+    if (this.weapon === 'puños') return;
+    const d = WEAPONS[this.weapon];
+    if (this.mag[this.weapon]! >= d.mag || this.reserve[this.weapon]! <= 0 || this.reloadT > 0) return;
+    this.reloadT = d.reload;
+    const w = this.weapon;
+    setTimeout(() => { const need = d.mag - this.mag[w]!; const take = Math.min(need, this.reserve[w]!); this.mag[w] = this.mag[w]! + take; this.reserve[w] = this.reserve[w]! - take; }, d.reload * 1000);
+  }
+
+  /** Disparo: rayo desde la cámara (mira al centro) con dispersión; alcanza peatones, criaturas y vehículos; las paredes lo frenan. */
+  private fire(): void {
+    if (this.weapon === 'puños' || this.gunCd > 0 || this.reloadT > 0) return;
+    const d = WEAPONS[this.weapon];
+    if (this.mag[this.weapon]! <= 0) { if (this.reserve[this.weapon]! > 0) this.startReload(); else this.ui.toast('<b>Sin balas</b>Las criaturas y la gente sueltan munición', 1.5); this.gunCd = 0.4; return; }
+    this.mag[this.weapon] = this.mag[this.weapon]! - 1;
+    this.gunCd = d.rate;
+    this.action = 'disparo'; this.actionT = Math.max(0.15, d.rate);
+    this.joan.play('shoot', 0.03, true);
+    if (this.weapon === 'escopeta') this.sfx.shotgun(); else this.sfx.shot(this.weapon);
+    const muzzle = new THREE.Vector3(); this.guns[this.weapon]!.muzzle.getWorldPosition(muzzle);
+    this.gunFx.flash(muzzle, this.weapon === 'escopeta' ? 0.9 : 0.55);
+    const base = new THREE.Vector3(); this.camera.getWorldDirection(base);
+    const origin = this.camera.position.clone();
+    const skip = origin.distanceTo(this.player.pos) + 0.5; // ignora lo que está entre la cámara y Joan
+    for (let k = 0; k < d.pellets; k++) {
+      const dir = base.clone().add(new THREE.Vector3((Math.random() - 0.5) * d.spread * 2, (Math.random() - 0.5) * d.spread * 2, (Math.random() - 0.5) * d.spread * 2)).normalize();
+      // pared más cercana (2D) dentro del alcance
+      const far = origin.clone().addScaledVector(dir, d.range);
+      const wallT = this.world.collision.raycast(origin.x, origin.z, far.x, far.z) * d.range;
+      let best: { t: number; hit: () => void } | null = null;
+      const test = (c: THREE.Vector3, r: number, hit: () => void) => {
+        const v = c.clone().sub(origin); const t = v.dot(dir);
+        if (t < skip || t > Math.min(wallT, d.range)) return;
+        if (v.addScaledVector(dir, -t).length() < r && (!best || t < best.t)) best = { t, hit };
+      };
+      const dmg = this.weapon === 'escopeta' ? d.dmg * Math.max(0.3, 1) : d.dmg;
+      for (const n of this.npcs.npcs) if (n.state !== 'muerto') { const c = n.pos.clone().setY(n.pos.y + 1.1); test(c, 0.55, () => this.npcs.shoot(n, dmg, dir.x, dir.z)); }
+      for (const m of this.monsters.list) if (m.state !== 'muerto') { const c = m.pos.clone().setY(m.pos.y + 1.3); test(c, 0.6, () => this.monsters.damage(m, dmg, dir)); }
+      for (const v of this.traffic.list) if (v !== this.vehicle && !v.wrecked) { const c = v.pos.clone().setY(v.pos.y + (v.kind === 'heli' ? 1.6 : 0.8)); test(c, v.kind === 'heli' ? 2 : 1.2, () => { v.damage(dmg * 0.25); if (v.driver === 'ia') v.cruise *= 1.3; }); }
+      const hb = best as { t: number; hit: () => void } | null;
+      const end = origin.clone().addScaledVector(dir, hb ? hb.t : Math.min(wallT, d.range));
+      if (hb) hb.hit(); else if (wallT < d.range) this.gunFx.dust(end);
+      if (k < 2) this.gunFx.tracer(muzzle, end);
+    }
+    this.npcs.panic(this.player.pos, 35);
+    // Disparar delante de la policía sube la búsqueda
+    if (this.npcs.npcs.some((n) => n.kind === 'policia' && n.state !== 'muerto' && n.pos.distanceTo(this.player.pos) < 40) && this.traffic.wanted < 1) this.traffic.addWanted(1);
+    this.cam.pitch = Math.min(this.cam.pitch + (this.weapon === 'escopeta' ? 0.035 : this.weapon === 'ak' ? 0.008 : 0.015), 1.0); // retroceso
+  }
+
+  /** Disparo de un policía (efectos y sonido). */
+  private copShot(from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void {
+    this.gunFx.flash(from, 0.45);
+    this.gunFx.tracer(from, to);
+    if (!hit) this.gunFx.dust(to);
+    this.sfx.shot('pistola', Math.max(0.15, 1 - from.distanceTo(this.player.pos) / 40));
   }
 
   private updateDebug(frameDt: number, speed: number): void {
@@ -850,7 +876,7 @@ export class Game {
       stats: this.world.stats, pickups: this.pickups.count, npcs: this.npcs.count, places: this.world.places.map((p) => p.name),
     };
   }
-  get debugExtra() { return { vehicle: this.vehicle?.kind ?? null, vspeed: this.vehicle?.speed ?? 0, wanted: this.traffic.wanted, cars: this.traffic.list.length, race: this.race.state, inside: this.places.insideKind, monsters: this.monsters.count, ammo: this.ammo, shotgun: this.hasShotgun, strength: this.strength, action: this.action, menu: !!this.menu }; }
+  get debugExtra() { return { vehicle: this.vehicle?.kind ?? null, vspeed: this.vehicle?.speed ?? 0, wanted: this.traffic.wanted, cars: this.traffic.list.length, race: this.race.state, inside: this.places.insideKind, monsters: this.monsters.count, weapon: this.weapon, mag: { ...this.mag }, reserve: { ...this.reserve }, strength: this.strength, action: this.action, menu: !!this.menu }; }
   debugSetHour(h: number): void { this.gameTime = ((h - CONFIG.day.startHour + 24) % 24) / 24 * CONFIG.day.realSecondsPerDay; }
   debugTeleport(x: number, z: number, yaw: number, pitchDeg = 15, dist = 1): void {
     this.player.pos.set(x, this.world.heightAt(x, z), z); this.player.prevPos.copy(this.player.pos);

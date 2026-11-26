@@ -5,6 +5,7 @@ import type { CityWorld } from '../world/CityWorld';
 import type { Pickups } from '../world/Pickups';
 import type { Road, V2 } from '../map/osm';
 import { densify, offsetPolyline, CURB_W } from '../world/roads';
+import { gunModel } from '../player/Weapons';
 
 type NpcState = 'caminar' | 'parado' | 'saludar' | 'huir' | 'pelear' | 'acechar' | 'golpeado' | 'muerto';
 
@@ -16,6 +17,10 @@ export interface PlayerCtx {
   hurt(amount: number, source: 'golpe'): void;
   rob(amount: number): void;
   notify(html: string): void;
+  /** Estrellas de búsqueda: con > 0 la policía saca la pistola. */
+  wanted?: number;
+  /** La policía disparó (para el fogonazo, la trazadora y el sonido). */
+  copShot?: (from: THREE.Vector3, to: THREE.Vector3, hit: boolean) => void;
 }
 
 export interface Npc {
@@ -108,6 +113,7 @@ export class NpcManager {
         stolen: 0, attackCd: 0, hitStun: 0, deadTime: 0, greeted: false,
       };
       avatar.object.position.copy(npc.pos);
+      if (kind === 'policia') { const gm = gunModel('pistola'); gm.group.visible = false; avatar.bones.hand_R.add(gm.group); (npc as Npc & { gun?: THREE.Group }).gun = gm.group; }
       this.group.add(avatar.object);
       this.npcs.push(npc);
       return npc;
@@ -159,6 +165,25 @@ export class NpcManager {
 
   /** Policía que se baja de la patrulla y va por el jugador. */
   spawnCop(p: V2): Npc { const n = this.make('policia', p); n.state = 'pelear'; n.aggressive = true; return n; }
+
+  /** Bala: daño, empujón, pánico alrededor. */
+  shoot(n: Npc, dmg: number, dx: number, dz: number): void {
+    if (n.state === 'muerto') return;
+    n.health -= dmg;
+    n.pos.x += dx * 0.25; n.pos.z += dz * 0.25;
+    this.world.collision.resolve(n.pos, 0.3);
+    if (n.health <= 0) { this.kill(n); this.onCrime?.('muerte', n.kind); }
+    else { this.onCrime?.('asalto', n.kind); n.state = 'golpeado'; n.hitStun = 0.5; n.avatar.play('hit', 0.05, true); }
+  }
+
+  /** Disparos cerca: la gente corre (menos policías y ladrones, que se ponen agresivos). */
+  panic(p: THREE.Vector3, r: number): void {
+    for (const o of this.npcs) {
+      if (o.state === 'muerto' || o.pos.distanceTo(p) > r) continue;
+      if (o.kind === 'policia') { o.state = 'pelear'; continue; }
+      if (o.state === 'caminar' || o.state === 'parado') { o.state = 'huir'; o.timer = 8; }
+    }
+  }
 
   /** Delitos del jugador (para el nivel de búsqueda). */
   onCrime: ((type: 'asalto' | 'muerte', kind: Archetype) => void) | null = null;
@@ -225,10 +250,10 @@ export class NpcManager {
           if (dP < 1.6 && !player.dead) { const s = toP.x * vz - toP.z * vx > 0 ? -1 : 1; vx += -vz * s * 0.8; vz += vx * s * 0.8; }
           anim = old ? 'walkOld' : 'walk'; animSpeed = n.speed;
           if (this.rnd() < dt * 0.04) { n.state = 'parado'; n.timer = 2 + this.rnd() * 4; }
+          if (n.kind === 'policia' && (player.wanted ?? 0) > 0 && dP < 40) n.state = 'pelear';
           // Ladrón: si ve al jugador con dinero, acecha
           if (n.kind === 'ladron' && dP < 14 && player.money > 0 && !player.dead && n.stolen === 0) n.state = 'acechar';
           // Saludo espontáneo al pasar cerca
-          if (!n.greeted && dP < 3 && this.rnd() < 0.3 && n.kind !== 'ladron') { n.greeted = true; n.state = 'saludar'; n.timer = 1.6; n.avatar.play('wave', 0.2, true); }
           break;
         }
         case 'parado':
@@ -256,6 +281,20 @@ export class NpcManager {
         }
         case 'acechar':
         case 'pelear': {
+          if (n.kind === 'policia' && (player.wanted ?? 0) > 0 && !player.dead && dP > 2.2 && dP < 30 && this.world.collision.raycast(n.pos.x, n.pos.z, player.pos.x, player.pos.z) >= 1) {
+            // Policía armado: se detiene, apunta y dispara
+            n.facing = turn(n.facing, Math.atan2(toP.x, toP.z), dt * 8);
+            anim = 'aimGun';
+            const gun = (n as Npc & { gun?: THREE.Group }).gun; if (gun) gun.visible = true;
+            if (n.attackCd <= 0) {
+              n.attackCd = 1.2 + this.rnd() * 0.8;
+              n.avatar.play('shoot', 0.04, true);
+              const hit = this.rnd() < 0.4 * (1 - dP / 35);
+              if (hit) player.hurt(6, 'golpe');
+              player.copShot?.(n.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), player.pos.clone().add(new THREE.Vector3((this.rnd() - 0.5) * (hit ? 0.2 : 1.5), 1.2, (this.rnd() - 0.5) * (hit ? 0.2 : 1.5))), hit);
+            }
+            break;
+          }
           if (player.dead) { n.state = n.stolen > 0 ? 'huir' : 'caminar'; n.timer = 6; break; }
           n.facing = turn(n.facing, Math.atan2(toP.x, toP.z), dt * 8);
           if (dP > 1.05) {
@@ -299,7 +338,7 @@ export class NpcManager {
           if (d < 0.6 && d > 1e-4) { n.pos.x += (dx / d) * (0.6 - d) * 0.5; n.pos.z += (dz / d) * (0.6 - d) * 0.5; }
         }
         // Animación (los golpes de un solo disparo terminan antes de volver al ciclo)
-        const oneShot = ['punchR', 'punchL', 'hookR', 'hit', 'wave'].includes(n.avatar.currentName) && !n.avatar.finished;
+        const oneShot = ['punchR', 'punchL', 'hookR', 'hit', 'wave', 'shoot'].includes(n.avatar.currentName) && !n.avatar.finished;
         if (!oneShot) n.avatar.play(anim);
         n.avatar.setGaitSpeed(animSpeed);
       }

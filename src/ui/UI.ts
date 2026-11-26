@@ -10,8 +10,9 @@ const CONTROLS: [string, string][] = [
   ['Ratón', 'Girar la cámara'],
   ['Rueda / V', 'Distancia de cámara'],
   ['Clic izq. / Q', 'Golpear'],
-  ['E', 'Saludar / sentarse en un banco'],
-  ['Clic der.', 'Apuntar (mantener)'],
+  ['E', 'Sentarse en un banco · entrar · comprar'],
+  ['1 · 2 · 3 · 0', 'Pistola · Escopeta · AK · Puños; R: recargar'],
+  ['Clic der. + Clic izq.', 'Apuntar y disparar (la AK es automática)'],
   ['F', 'Subir o bajar de un vehículo (si tiene conductor, lo sacas)'],
   ['W / S · A / D', 'En vehículo: acelerar / frenar · girar; Espacio: freno de mano'],
   ['Espacio / Shift', 'En helicóptero: subir / bajar'],
@@ -235,7 +236,7 @@ export class UI {
   setWanted(n: number): void { const k = Math.ceil(n - 0.01); this.starsEl.innerHTML = k > 0 ? '★'.repeat(k) + '<span>' + '★'.repeat(5 - k) + '</span>' : ''; }
   setSpeed(kmh: number | null): void { this.speedEl.style.display = kmh === null ? 'none' : 'block'; if (kmh !== null) this.speedEl.innerHTML = `${Math.round(kmh)}<small>km/h</small>`; }
   setBanner(t: string): void { this.bannerEl.textContent = t; this.bannerEl.style.display = t ? 'block' : 'none'; this.bannerEl.classList.toggle('small', t.startsWith('Posición')); }
-  setAmmo(n: number | null): void { this.ammoEl.textContent = n === null ? '' : `Escopeta · ${n}`; }
+  setAmmo(t: string): void { this.ammoEl.textContent = t; }
   showMenu(title: string, lines: string[], money: number): void {
     this.menuEl.innerHTML = `<div class="dialog-title">${title}</div>${lines.map((l) => `<div class="mi">${l}</div>`).join('')}<div class="dialog-step">Tienes $${money} · <kbd>E</kbd> cerrar</div>`;
     this.menuEl.classList.add('on');

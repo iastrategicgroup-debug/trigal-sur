@@ -71,6 +71,8 @@ export class Avatar {
 
   dispose(): void {
     this.mixer.stopAllAction();
+    this.mixer.uncacheRoot(this.mesh);
+    this.mesh.skeleton.dispose(); // textura de huesos (una por personaje)
     this.mesh.geometry.dispose();
     const m = this.mesh.material as THREE.MeshPhongMaterial;
     m.map?.dispose(); m.dispose();

@@ -50,7 +50,7 @@ export class Monsters {
       if (this.world.collision.resolve(q, 0.5)) continue;
       const av = new Avatar(creatureParams(this.seed++));
       av.play('stalk', 0);
-      const m: Monster = { avatar: av, pos: new THREE.Vector3(p.x, this.world.heightAt(p.x, p.z), p.z), facing: 0, health: 140, state: 'acechar', cd: 0, deadT: 0, groanT: 2 + Math.random() * 6 };
+      const m: Monster = { avatar: av, pos: new THREE.Vector3(p.x, this.world.heightAt(p.x, p.z), p.z), facing: 0, health: 160, state: 'acechar', cd: 0, deadT: 0, groanT: 2 + Math.random() * 6 };
       this.group.add(av.object);
       this.list.push(m);
       this.puff(m.pos, 3);
@@ -72,6 +72,18 @@ export class Monsters {
     this.group.remove(m.avatar.object); m.avatar.dispose();
     this.list.splice(this.list.indexOf(m), 1);
   }
+
+  /** Daño de bala a una criatura concreta. */
+  damage(m: Monster, dmg: number, dir: THREE.Vector3): void {
+    if (m.state === 'muerto') return;
+    m.health -= dmg;
+    m.pos.addScaledVector(new THREE.Vector3(dir.x, 0, dir.z).normalize(), Math.min(0.6, dmg * 0.01));
+    if (m.health <= 0) { m.state = 'muerto'; m.deadT = 0; m.avatar.play('death', 0.08, true); }
+    else m.avatar.play('hit', 0.05, true);
+  }
+
+  /** Distancia a la criatura viva más cercana (para el latido). */
+  nearestDist(p: THREE.Vector3): number { let d = Infinity; for (const m of this.list) if (m.state !== 'muerto') d = Math.min(d, m.pos.distanceTo(p)); return d; }
 
   /** Disparo de escopeta: cono de 7° desde la cámara. Devuelve cuántas criaturas recibieron daño. */
   shoot(origin: THREE.Vector3, dir: THREE.Vector3, from: THREE.Vector3): number {
@@ -103,7 +115,7 @@ export class Monsters {
     // Al amanecer se deshacen en humo
     if (!active) { for (const m of [...this.list]) { this.puff(m.pos, 4); this.remove(m); } return; }
     this.spawnT -= dt;
-    if (this.spawnT <= 0 && this.count < 7) { this.spawn(player.pos); this.spawnT = 4; }
+    if (this.spawnT <= 0 && this.count < 10) { this.spawn(player.pos); this.spawnT = 2.5; }
 
     for (const m of [...this.list]) {
       const to = new THREE.Vector3().subVectors(player.pos, m.pos); to.y = 0;
@@ -130,7 +142,7 @@ export class Monsters {
         else if (!busy) m.avatar.play('guard', 0.2);
       } else if (!busy) {
         m.state = 'acechar';
-        const sp = d < 14 ? 3.0 : 1.6;               // a corta distancia se lanza
+        const sp = d < 16 ? 3.6 : 1.9;               // a corta distancia se lanza
         if (d > 0.01 && !player.dead) {
           const vx = (to.x / d) * sp, vz = (to.z / d) * sp;
           m.facing = Math.atan2(vx, vz);
